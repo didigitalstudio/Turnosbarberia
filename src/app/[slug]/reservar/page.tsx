@@ -1,4 +1,4 @@
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { getShopBySlug } from '@/lib/shop-context';
 import { BookingFlow } from '@/components/client/BookingFlow';
@@ -16,16 +16,30 @@ export default async function ReservarPage({
   if (!shop) notFound();
 
   const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  // Registro obligatorio: si no hay sesión, mandamos a login conservando los
+  // params actuales en `?next=` para volver acá tras autenticar.
+  if (!user) {
+    const sp = new URLSearchParams();
+    if (searchParams.service) sp.set('service', searchParams.service);
+    if (searchParams.barber) sp.set('barber', searchParams.barber);
+    if (searchParams.reschedule) sp.set('reschedule', searchParams.reschedule);
+    const qs = sp.toString();
+    const next = `/${params.slug}/reservar${qs ? `?${qs}` : ''}`;
+    redirect(`/login?next=${encodeURIComponent(next)}&shop=${encodeURIComponent(params.slug)}`);
+  }
+
   const [
     { data: services },
     { data: barbers },
     { data: schedules },
-    { data: { user } }
+    { data: profileRow }
   ] = await Promise.all([
     supabase.from('services').select('*').eq('shop_id', shop.id).eq('is_active', true).order('price'),
     supabase.from('barbers').select('*').eq('shop_id', shop.id).eq('is_active', true).order('created_at'),
     supabase.from('schedules').select('day_of_week, is_working').eq('shop_id', shop.id),
-    supabase.auth.getUser()
+    supabase.from('profiles').select('name, email, phone').eq('id', user.id).maybeSingle()
   ]);
 
   // Un día está abierto si al menos un barbero activo trabaja ese día de la semana.
@@ -35,11 +49,11 @@ export default async function ReservarPage({
       .map((s: any) => Number(s.day_of_week))
   )).sort();
 
-  let profile: { name: string; email: string | null; phone: string | null } | null = null;
-  if (user) {
-    const { data } = await supabase.from('profiles').select('name, email, phone').eq('id', user.id).maybeSingle();
-    profile = (data as typeof profile) || null;
-  }
+  const profile = (profileRow as { name: string; email: string | null; phone: string | null } | null) || {
+    name: user.email?.split('@')[0] || 'Cliente',
+    email: user.email || null,
+    phone: null
+  };
 
   // Reprogramación: si vino ?reschedule=<id>, validamos que el turno
   // pertenece al user logueado y a este shop. Si no, lo ignoramos.

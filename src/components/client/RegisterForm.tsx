@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Icon } from '@/components/shared/Icon';
 import { Toast } from '@/components/shared/Toast';
 import { signupOwner, signupClient } from '@/app/actions/auth';
@@ -97,8 +97,10 @@ function RoleSelector({ onPick }: { onPick: (r: Role) => void }) {
 
 function ClientForm({ onBack, shopContext }: { onBack: (() => void) | null; shopContext: ShopContext }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<{ text: string } | null>(null);
+  const next = searchParams.get('next') || '';
 
   const headline = shopContext ? (
     <>Creá tu cuenta en <span className="italic text-accent">{shopContext.name}</span></>
@@ -143,6 +145,7 @@ function ClientForm({ onBack, shopContext }: { onBack: (() => void) | null; shop
           action={(fd) => start(async () => {
             setMsg(null);
             if (shopContext) fd.set('shopSlug', shopContext.slug);
+            if (next) fd.set('next', next);
             const res = await signupClient(fd);
             if (res?.error) setMsg({ text: res.error });
             else if (res?.dest) {
@@ -151,6 +154,7 @@ function ClientForm({ onBack, shopContext }: { onBack: (() => void) | null; shop
             }
           })}
         >
+          {next && <input type="hidden" name="next" value={next} />}
           <label className="bg-dark-card rounded-xl px-4 py-3 border border-dark-line block focus-within:border-accent transition">
             <span className="block text-[10px] text-dark-muted uppercase tracking-[1.5px] mb-1">Nombre completo</span>
             <input
@@ -180,6 +184,23 @@ function ClientForm({ onBack, shopContext }: { onBack: (() => void) | null; shop
               />
             </div>
             <Icon name="mail" size={18} color="#8C8A83" />
+          </label>
+
+          <label className="bg-dark-card rounded-xl px-4 py-3 border border-dark-line flex items-center gap-2.5 focus-within:border-accent transition">
+            <div className="flex-1">
+              <span className="block text-[10px] text-dark-muted uppercase tracking-[1.5px] mb-1">Teléfono</span>
+              <input
+                name="phone"
+                type="tel"
+                required
+                autoComplete="tel"
+                inputMode="tel"
+                enterKeyHint="next"
+                placeholder="+54 9 11 5823 4412"
+                className="bg-transparent text-bg text-[16px] w-full outline-none font-mono placeholder:text-dark-muted/60"
+              />
+            </div>
+            <Icon name="phone" size={18} color="#8C8A83" />
           </label>
 
           <label className="bg-dark-card rounded-xl px-4 py-3 border border-dark-line block focus-within:border-accent transition">

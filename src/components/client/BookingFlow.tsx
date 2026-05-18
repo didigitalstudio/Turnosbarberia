@@ -18,7 +18,8 @@ export function BookingFlow({
   shopSlug: string;
   services: Service[]; barbers: Barber[];
   preselectedService?: string; preselectedBarber?: string;
-  profile: { name: string; email: string | null; phone: string | null } | null;
+  // Profile siempre presente: el page server-side redirige a /login si no hay sesión.
+  profile: { name: string; email: string | null; phone: string | null };
   /** Días de la semana en los que al menos un barbero trabaja (0=Dom..6=Sab). Si no se pasa, se asumen todos abiertos. */
   workingDays?: number[];
   /** Si se pasa, después de confirmar el nuevo turno se cancela el viejo (reprogramación). */
@@ -32,9 +33,13 @@ export function BookingFlow({
   const [dateISO,   setDateISO]   = useState<string | null>(null);
   const [slotISO,   setSlotISO]   = useState<string | null>(null);
 
-  const [name,  setName]  = useState(profile?.name  || '');
-  const [email, setEmail] = useState(profile?.email || '');
-  const [phone, setPhone] = useState(profile?.phone || '');
+  // Nombre y email vienen del profile y son read-only en este flow.
+  // El teléfono lo permitimos editar solo si el profile no lo tiene cargado
+  // (legacy: usuarios registrados antes de que el campo fuera obligatorio).
+  const name  = profile.name;
+  const email = profile.email || '';
+  const [phone, setPhone] = useState(profile.phone || '');
+  const phoneFromProfile = Boolean(profile.phone);
 
   const [slots, setSlots] = useState<Slot[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
@@ -275,46 +280,32 @@ export function BookingFlow({
               }).replace('.', '') : ''}/>
             </div>
 
-            <SectionLabel className="mt-5">TUS DATOS</SectionLabel>
-            <div className="flex flex-col gap-2">
-              <label className="bg-card border border-line rounded-xl px-4 py-2.5 block focus-within:border-ink/50 transition">
-                <span className="block text-[10px] text-muted uppercase tracking-[1.5px] mb-0.5">Nombre</span>
-                <input
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                  placeholder="Joaquín Méndez"
-                  autoComplete="name"
-                  enterKeyHint="next"
-                  className="bg-transparent text-ink w-full outline-none"
-                />
-              </label>
-              <label className="bg-card border border-line rounded-xl px-4 py-2.5 block focus-within:border-ink/50 transition">
-                <span className="block text-[10px] text-muted uppercase tracking-[1.5px] mb-0.5">Email</span>
-                <input
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  placeholder="vos@email.com"
-                  type="email"
-                  autoComplete="email"
-                  inputMode="email"
-                  enterKeyHint="next"
-                  className="bg-transparent text-ink w-full outline-none font-mono"
-                />
-              </label>
-              <label className="bg-card border border-line rounded-xl px-4 py-2.5 block focus-within:border-ink/50 transition">
-                <span className="block text-[10px] text-muted uppercase tracking-[1.5px] mb-0.5">Teléfono</span>
-                <input
-                  value={phone}
-                  onChange={e => setPhone(e.target.value)}
-                  placeholder="+54 9 11 5823 4412"
-                  type="tel"
-                  autoComplete="tel"
-                  inputMode="tel"
-                  enterKeyHint="done"
-                  className="bg-transparent text-ink w-full outline-none font-mono"
-                />
-              </label>
+            <SectionLabel className="mt-5">RESERVANDO COMO</SectionLabel>
+            <div className="bg-card border border-line rounded-xl px-4 py-3 flex flex-col gap-1">
+              <div className="text-[14px] font-medium">{name}</div>
+              {email && <div className="text-[12px] text-muted font-mono">{email}</div>}
+              {phoneFromProfile && <div className="text-[12px] text-muted font-mono">{phone}</div>}
             </div>
+
+            {!phoneFromProfile && (
+              <>
+                <SectionLabel className="mt-5">TELÉFONO DE CONTACTO</SectionLabel>
+                <label className="bg-card border border-line rounded-xl px-4 py-2.5 block focus-within:border-ink/50 transition">
+                  <span className="block text-[10px] text-muted uppercase tracking-[1.5px] mb-0.5">Teléfono</span>
+                  <input
+                    value={phone}
+                    onChange={e => setPhone(e.target.value)}
+                    placeholder="+54 9 11 5823 4412"
+                    type="tel"
+                    autoComplete="tel"
+                    inputMode="tel"
+                    enterKeyHint="done"
+                    required
+                    className="bg-transparent text-ink w-full outline-none font-mono"
+                  />
+                </label>
+              </>
+            )}
 
             {error && (
               <div className="mt-3">

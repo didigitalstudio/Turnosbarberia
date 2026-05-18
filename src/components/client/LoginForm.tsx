@@ -23,6 +23,11 @@ export function LoginForm() {
   const [sentToEmail, setSentToEmail] = useState<string | null>(null);
   const [sentName, setSentName] = useState<string>('');
 
+  // `?next=` que vino en el URL (ej: /[slug]/reservar manda acá si no hay sesión).
+  // Se reenvía como hidden input al action y al link de registro.
+  const next = searchParams.get('next') || '';
+  const shopParam = searchParams.get('shop') || '';
+
   // Banner de éxito al volver desde el flow de actualización de password.
   useEffect(() => {
     if (searchParams.get('reset') === '1') {
@@ -88,8 +93,10 @@ export function LoginForm() {
           <PasswordForm
             pending={pendingForm}
             msg={msg}
+            next={next}
             onSubmit={(fd) => startForm(async () => {
               setMsg(null);
+              if (next) fd.set('next', next);
               const res = await signInWithPassword(fd);
               if (res?.error) setMsg({ tone: 'error', text: res.error });
               else router.push(res?.dest || '/');
@@ -100,10 +107,12 @@ export function LoginForm() {
           <MagicForm
             pending={pendingForm}
             msg={msg}
+            next={next}
             onSubmit={(fd) => startForm(async () => {
               setMsg(null);
               const nameVal = String(fd.get('name') || '');
               const emailVal = String(fd.get('email') || '');
+              if (next) fd.set('next', next);
               const res = await sendMagicLink(fd);
               if (res?.error) setMsg({ tone: 'error', text: res.error });
               else {
@@ -119,7 +128,13 @@ export function LoginForm() {
 
         <div className="mt-8 flex flex-col items-center gap-3">
           <Link
-            href="/registro"
+            href={`/registro${(() => {
+              const sp = new URLSearchParams();
+              if (next) sp.set('next', next);
+              if (shopParam) sp.set('shop', shopParam);
+              const qs = sp.toString();
+              return qs ? `?${qs}` : '';
+            })()}`}
             className="text-[13px] text-dark-muted underline underline-offset-4 hover:text-bg transition text-center"
           >
             ¿No tenés cuenta? Registrate <Icon name="arrow-right" size={12} color="#8C8A83" />
@@ -131,16 +146,18 @@ export function LoginForm() {
 }
 
 function PasswordForm({
-  pending, msg, onSubmit, onClearMsg
+  pending, msg, onSubmit, onClearMsg, next
 }: {
   pending: boolean;
   msg: Notice | null;
   onSubmit: (fd: FormData) => void;
   onClearMsg: () => void;
+  next: string;
 }) {
   return (
     <div className="mt-4">
       <form className="flex flex-col gap-3" action={onSubmit}>
+        {next && <input type="hidden" name="next" value={next} />}
         <label className="bg-dark-card rounded-xl px-4 py-3 border border-dark-line block focus-within:border-accent transition">
           <span className="block text-[10px] text-dark-muted uppercase tracking-[1.5px] mb-1">Email</span>
           <input
@@ -199,16 +216,18 @@ function PasswordForm({
 }
 
 function MagicForm({
-  pending, msg, onSubmit, onClearMsg
+  pending, msg, onSubmit, onClearMsg, next
 }: {
   pending: boolean;
   msg: Notice | null;
   onSubmit: (fd: FormData) => void;
   onClearMsg: () => void;
+  next: string;
 }) {
   return (
     <div className="mt-4">
       <form className="flex flex-col gap-3" action={onSubmit}>
+        {next && <input type="hidden" name="next" value={next} />}
         <label className="bg-dark-card rounded-xl px-4 py-3 border border-dark-line block focus-within:border-accent transition">
           <span className="block text-[10px] text-dark-muted uppercase tracking-[1.5px] mb-1">Nombre</span>
           <input

@@ -118,6 +118,9 @@ export async function createBooking(input: z.infer<typeof BookingSchema>) {
 
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return { error: 'Para reservar tenés que iniciar sesión.', code: 'AUTH_REQUIRED' as const };
+  }
 
   // Reprogramación: validamos PRIMERO que el turno viejo existe y pertenece
   // al user, así no terminamos con dos turnos activos si el cancel falla
@@ -125,9 +128,6 @@ export async function createBooking(input: z.infer<typeof BookingSchema>) {
   // nada.
   let rescheduleTargetId: string | null = null;
   if (data.rescheduleFromId) {
-    if (!user) {
-      return { error: 'Para reprogramar tenés que estar logueado.' };
-    }
     const { data: oldAppt } = await admin
       .from('appointments')
       .select('id, status')
@@ -148,7 +148,7 @@ export async function createBooking(input: z.infer<typeof BookingSchema>) {
     .from('appointments')
     .insert({
       shop_id: shop.id,
-      profile_id: user?.id || null,
+      profile_id: user.id,
       barber_id: barberId,
       service_id: data.serviceId,
       customer_name: data.customerName,
@@ -188,17 +188,19 @@ export async function createBooking(input: z.infer<typeof BookingSchema>) {
   // Si el user ya tiene shop_id (vino de otro shop) no lo pisamos: queda con
   // el primero. Si is_admin = true (es dueño), tampoco — el shop_id del
   // dueño es su panel, no una barbería de cliente.
-  if (user) {
-    const { data: prof } = await admin
-      .from('profiles')
-      .select('is_admin, shop_id')
-      .eq('id', user.id)
-      .maybeSingle<{ is_admin: boolean; shop_id: string | null }>();
-    if (prof && !prof.is_admin && !prof.shop_id) {
-      await admin
-        .from('profiles')
-        .update({ shop_id: shop.id })
-        .eq('id', user.id);
+  // También guardamos el teléfono del profile si todavía no lo tenía (legacy
+  // users registrados antes de que el campo fuera obligatorio).
+  const { data: prof } = await admin
+    .from('profiles')
+    .select('is_admin, shop_id, phone')
+    .eq('id', user.id)
+    .maybeSingle<{ is_admin: boolean; shop_id: string | null; phone: string | null }>();
+  if (prof) {
+    const patch: Record<string, unknown> = {};
+    if (!prof.is_admin && !prof.shop_id) patch.shop_id = shop.id;
+    if (!prof.phone && data.customerPhone) patch.phone = data.customerPhone;
+    if (Object.keys(patch).length > 0) {
+      await admin.from('profiles').update(patch).eq('id', user.id);
     }
   }
 

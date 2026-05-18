@@ -2,25 +2,7 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { LAST_SHOP_COOKIE } from '@/lib/shop-context';
-
-// Whitelist de paths permitidos como destino post-login.
-// Cualquier otra cosa (protocolo, //dominio, /\dominio, /%2Fdominio, etc.)
-// se rechaza.
-const SAFE_NEXT_RE = /^\/(shop(?:\/.*)?|onboarding|registro|login|desarrollo(?:\/.*)?|perfil|cuenta\/[a-z-]+|[a-z0-9][a-z0-9-]{1,40}[a-z0-9](?:\/.*)?)?$/;
-
-function sanitizeNext(raw: string | null): string | null {
-  if (!raw) return null;
-  if (!raw.startsWith('/')) return null;
-  if (raw.startsWith('//')) return null;
-  if (raw.includes('\\')) return null;
-  try {
-    const decoded = decodeURIComponent(raw);
-    if (decoded.startsWith('//') || decoded.includes('\\')) return null;
-  } catch {
-    return null;
-  }
-  return SAFE_NEXT_RE.test(raw) ? raw : null;
-}
+import { sanitizeNext } from '@/lib/safe-next';
 
 const RESERVED_SLUGS = new Set([
   'api', 'auth', 'shop', 'login', 'registro', 'cuenta',
