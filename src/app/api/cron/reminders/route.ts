@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { createAdminClient } from '@/lib/supabase/server';
 import { sendAppointmentReminderToCustomer } from '@/lib/email';
+import { sendWhatsappTemplate, normalizeArPhone } from '@/lib/whatsapp';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -39,7 +40,7 @@ export async function GET(request: Request) {
 
   const { data: appointments, error } = await admin
     .from('appointments')
-    .select('id, starts_at, customer_name, customer_email, notes, shop_id, payment_status, payment_amount, barbers(name), services(name, price), shops(name, slug)')
+    .select('id, starts_at, customer_name, customer_email, customer_phone, notes, shop_id, payment_status, payment_amount, barbers(name), services(name, price), shops(name, slug)')
     .gte('starts_at', tomorrowStart.toISOString())
     .lt('starts_at', tomorrowEnd.toISOString())
     .in('status', ['pending', 'confirmed'])
@@ -49,9 +50,32 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  // Pre-cargamos config de WA por shop para no hacer una query por turno.
+  const shopIds = Array.from(new Set((appointments || []).map((a: any) => a.shop_id)));
+  const waByShop = new Map<string, { phone_number_id: string; access_token: string; template_name: string; template_language: string }>();
+  if (shopIds.length > 0) {
+    const { data: waSettings } = await admin
+      .from('shop_whatsapp_settings')
+      .select('shop_id, phone_number_id, access_token, reminder_template_name, reminder_template_language, is_active')
+      .in('shop_id', shopIds)
+      .eq('is_active', true);
+    for (const s of (waSettings as any[]) || []) {
+      if (s.phone_number_id && s.access_token) {
+        waByShop.set(s.shop_id, {
+          phone_number_id: s.phone_number_id,
+          access_token: s.access_token,
+          template_name: s.reminder_template_name,
+          template_language: s.reminder_template_language
+        });
+      }
+    }
+  }
+
   let sent = 0;
   let skipped = 0;
   let failed = 0;
+  let waSent = 0;
+  let waFailed = 0;
 
   for (const a of appointments || []) {
     const row = a as any;
@@ -83,13 +107,41 @@ export async function GET(request: Request) {
     } else {
       failed++;
     }
+
+    // WhatsApp: si el shop tiene WA activo, mandamos también el template de
+    // recordatorio. No depende del éxito del mail — son canales independientes.
+    const waCfg = waByShop.get(row.shop_id);
+    if (waCfg && row.customer_phone) {
+      const phone = normalizeArPhone(row.customer_phone);
+      if (phone) {
+        const time = new Date(row.starts_at).toLocaleTimeString('es-AR', {
+          hour: '2-digit', minute: '2-digit', hour12: false,
+          timeZone: 'America/Argentina/Buenos_Aires'
+        });
+        const waRes = await sendWhatsappTemplate({
+          accessToken: waCfg.access_token,
+          phoneNumberId: waCfg.phone_number_id,
+          templateName: waCfg.template_name,
+          templateLanguage: waCfg.template_language,
+          to: phone,
+          variables: [
+            row.customer_name || 'cliente',
+            time,
+            row.shops?.name || 'la barbería',
+            row.barbers?.name || 'tu barbero'
+          ]
+        });
+        if (waRes.ok) waSent++; else waFailed++;
+      } else {
+        waFailed++;
+      }
+    }
   }
 
   return NextResponse.json({
     ok: true,
     total: (appointments || []).length,
-    sent,
-    skipped,
-    failed
+    email: { sent, skipped, failed },
+    whatsapp: { sent: waSent, failed: waFailed }
   });
 }
