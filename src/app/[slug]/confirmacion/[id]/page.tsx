@@ -6,6 +6,7 @@ import { getShopBySlug } from '@/lib/shop-context';
 import { Icon } from '@/components/shared/Icon';
 import { Stripe } from '@/components/shared/Stripe';
 import { ConfirmationActions } from '@/components/client/ConfirmationActions';
+import { PayDepositButton } from '@/components/client/PayDepositButton';
 import { money } from '@/lib/format';
 import { RECENT_BOOKINGS_COOKIE } from '@/lib/booking-cookie';
 
@@ -102,13 +103,11 @@ export default async function ConfirmationPage({ params }: { params: { slug: str
             Tocá el botón de abajo para pagar la seña vía Mercado Pago. Si no completás el pago en 10 min,
             el turno se libera automáticamente.
           </div>
-          <button
-            type="button"
-            disabled
-            className="mt-3 w-full bg-accent text-white px-4 py-2.5 rounded-m text-[13px] font-semibold opacity-60 cursor-not-allowed"
-          >
-            Pagar seña · {money(Number(a.payment_amount || 0))} (próximamente)
-          </button>
+          <PayDepositButton
+            shopSlug={params.slug}
+            appointmentId={a.id}
+            amount={Number(a.payment_amount || 0)}
+          />
         </div>
       )}
 

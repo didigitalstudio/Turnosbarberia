@@ -10,10 +10,18 @@ import {
   updateSchedules,
   addShop, switchShop
 } from '@/app/actions/ajustes';
+import { upsertShopPaymentSettings } from '@/app/actions/payments';
 import { slugify } from '@/lib/slug';
 import type { Shop, Service, Barber, Schedule } from '@/types/db';
 
-type Tab = 'shop' | 'services' | 'team' | 'hours' | 'sedes';
+type Tab = 'shop' | 'services' | 'team' | 'hours' | 'sedes' | 'pagos';
+
+export type ShopPaymentSettings = {
+  mp_access_token: string | null;
+  mp_public_key: string | null;
+  mp_webhook_secret: string | null;
+  is_active: boolean;
+};
 
 const DAYS = [
   { idx: 1, short: 'Lun', long: 'Lunes' },
@@ -26,7 +34,7 @@ const DAYS = [
 ];
 
 export function AjustesView({
-  shop, services, barbers, schedules, publicUrl, userShops
+  shop, services, barbers, schedules, publicUrl, userShops, paymentSettings
 }: {
   shop: Shop;
   services: Service[];
@@ -34,6 +42,7 @@ export function AjustesView({
   schedules: Schedule[];
   publicUrl: string;
   userShops: Shop[];
+  paymentSettings: ShopPaymentSettings | null;
 }) {
   const [tab, setTab] = useState<Tab>('shop');
   const [toast, setToast] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
@@ -51,7 +60,7 @@ export function AjustesView({
 
       {/* Tabs */}
       <div className="mt-5 flex gap-1 bg-dark-card border border-dark-line rounded-xl p-1 w-full md:max-w-2xl overflow-x-auto no-scrollbar">
-        {(['shop', 'services', 'team', 'hours', 'sedes'] as Tab[]).map(t => (
+        {(['shop', 'services', 'team', 'hours', 'sedes', 'pagos'] as Tab[]).map(t => (
           <button
             key={t}
             type="button"
@@ -69,6 +78,7 @@ export function AjustesView({
         {tab === 'team' && <TeamSection barbers={barbers} onToast={setToast} />}
         {tab === 'hours' && <HoursSection barbers={barbers} schedules={schedules} onToast={setToast} />}
         {tab === 'sedes' && <SedesSection shop={shop} userShops={userShops} onToast={setToast} />}
+        {tab === 'pagos' && <PagosSection settings={paymentSettings} onToast={setToast} />}
       </div>
     </div>
   );
@@ -79,7 +89,8 @@ function tabLabel(t: Tab) {
     : t === 'services' ? 'Servicios'
     : t === 'team' ? 'Equipo'
     : t === 'hours' ? 'Horarios'
-    : 'Sedes';
+    : t === 'sedes' ? 'Sedes'
+    : 'Pagos';
 }
 
 // ─── Public link banner ──────────────────────────────────────────────────────
@@ -762,6 +773,119 @@ function SedesSection({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Pagos section (Mercado Pago) ────────────────────────────────────────────
+
+function PagosSection({
+  settings, onToast
+}: {
+  settings: ShopPaymentSettings | null;
+  onToast: (t: { tone: 'success' | 'error'; text: string }) => void;
+}) {
+  const [pending, start] = useTransition();
+  const [accessToken, setAccessToken] = useState(settings?.mp_access_token || '');
+  const [publicKey, setPublicKey] = useState(settings?.mp_public_key || '');
+  const [isActive, setIsActive] = useState(Boolean(settings?.is_active));
+  const [showToken, setShowToken] = useState(false);
+
+  const save = () => {
+    start(async () => {
+      const r = await upsertShopPaymentSettings({
+        mp_access_token: accessToken.trim() || '',
+        mp_public_key: publicKey.trim() || '',
+        is_active: isActive
+      });
+      if (r?.error) onToast({ tone: 'error', text: r.error });
+      else onToast({ tone: 'success', text: 'Configuración de pagos guardada' });
+    });
+  };
+
+  const toggleActive = () => {
+    if (!accessToken.trim() && !isActive) {
+      onToast({ tone: 'error', text: 'Cargá primero el access token de Mercado Pago' });
+      return;
+    }
+    setIsActive(v => !v);
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="bg-dark-card border border-dark-line rounded-xl px-4 py-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <div className="font-mono text-[10px] tracking-[2px] text-dark-muted">MERCADO PAGO</div>
+            <div className="text-[14px] font-semibold text-bg mt-0.5">
+              {isActive ? 'Activo · cobrás señas al reservar' : 'Inactivo · no se cobran señas'}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={toggleActive}
+            className={`text-[11px] px-3 py-2 rounded-m font-semibold transition ${isActive ? 'bg-bg text-ink' : 'bg-accent text-white'}`}>
+            {isActive ? 'Desactivar' : 'Activar'}
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-dark-card border border-dark-line rounded-xl p-4 flex flex-col gap-2.5">
+        <div className="font-mono text-[10px] tracking-[2px] text-dark-muted">CREDENCIALES</div>
+        <div className="text-[12px] text-dark-muted leading-relaxed">
+          Pegá las credenciales de <span className="text-bg">producción</span> de tu cuenta de Mercado Pago.
+          Las encontrás en <span className="font-mono text-bg">mercadopago.com.ar → Tu negocio → Configuración → Credenciales</span>.
+          Las guardamos cifradas y solo las usamos para cobrar a tu nombre.
+        </div>
+
+        <Field label="Access token (privado)">
+          <div className="flex items-center gap-2">
+            <input
+              type={showToken ? 'text' : 'password'}
+              value={accessToken}
+              onChange={e => setAccessToken(e.target.value)}
+              placeholder="APP_USR-..."
+              className="bg-transparent text-bg w-full outline-none font-mono text-[13px]"
+            />
+            <button
+              type="button"
+              onClick={() => setShowToken(v => !v)}
+              className="text-[10px] text-dark-muted hover:text-bg transition uppercase tracking-[1px]">
+              {showToken ? 'Ocultar' : 'Ver'}
+            </button>
+          </div>
+        </Field>
+
+        <Field label="Public key (opcional, para checkout embebido)">
+          <input
+            value={publicKey}
+            onChange={e => setPublicKey(e.target.value)}
+            placeholder="APP_USR-..."
+            className="bg-transparent text-bg w-full outline-none font-mono text-[13px]"
+          />
+        </Field>
+
+        <div className="flex gap-2 mt-1">
+          <button
+            type="button"
+            onClick={save}
+            disabled={pending}
+            className="bg-accent text-white px-4 py-2.5 rounded-m text-[13px] font-semibold disabled:opacity-50 active:scale-[0.97] transition">
+            {pending ? 'Guardando…' : 'Guardar credenciales'}
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-dark-card border border-dark-line rounded-xl p-4 text-[12px] text-dark-muted leading-relaxed">
+        <div className="font-semibold text-bg mb-1.5">Cómo funciona</div>
+        <ol className="list-decimal pl-4 flex flex-col gap-1">
+          <li>Configurá la seña por servicio (en la pestaña <span className="text-bg">Servicios</span>).</li>
+          <li>El cliente reserva, paga la seña vía Mercado Pago y el turno queda confirmado.</li>
+          <li>Si no paga en 10 min, el slot vuelve a estar libre.</li>
+          <li>El día del turno, en Caja figura el saldo restante (precio total menos seña ya cobrada).</li>
+          <li>Si el cliente cancela con ≥3 hs de anticipación, le devolvemos todo menos el 20% del precio (seña dura). Después no.</li>
+        </ol>
+      </div>
     </div>
   );
 }
