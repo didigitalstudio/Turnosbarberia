@@ -77,6 +77,8 @@ export async function upsertService(input: {
   duration_mins: number;
   price: number;
   description?: string;
+  deposit_type?: 'none' | 'percent' | 'fixed' | 'full';
+  deposit_amount?: number;
 }) {
   const shop = await getAdminShop();
   if (!shop) return { error: 'No autorizado' };
@@ -85,19 +87,38 @@ export async function upsertService(input: {
   if (!parsed.success) return { error: formatZodError(parsed.error) };
   const d = parsed.data;
   const description = (d.description || '').trim() || null;
+  // 'full' = 100% del precio: el monto guardado se ignora desde la UI, pero
+  // lo normalizamos a 0 para que no quede ruido en la DB.
+  const depositAmount = d.deposit_type === 'full' || d.deposit_type === 'none' ? 0 : d.deposit_amount;
 
   const supabase = createClient();
   if (d.id) {
     const { error } = await supabase
       .from('services')
-      .update({ name: d.name, duration_mins: d.duration_mins, price: d.price, description })
+      .update({
+        name: d.name,
+        duration_mins: d.duration_mins,
+        price: d.price,
+        description,
+        deposit_type: d.deposit_type,
+        deposit_amount: depositAmount
+      })
       .eq('id', d.id)
       .eq('shop_id', shop.id);
     if (error) return { error: error.message };
   } else {
     const { error } = await supabase
       .from('services')
-      .insert({ shop_id: shop.id, name: d.name, duration_mins: d.duration_mins, price: d.price, description, is_active: true });
+      .insert({
+        shop_id: shop.id,
+        name: d.name,
+        duration_mins: d.duration_mins,
+        price: d.price,
+        description,
+        is_active: true,
+        deposit_type: d.deposit_type,
+        deposit_amount: depositAmount
+      });
     if (error) return { error: error.message };
   }
   revalidatePath('/shop/ajustes');

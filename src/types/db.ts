@@ -2,6 +2,7 @@ export type AppointmentStatus = 'pending' | 'confirmed' | 'in_progress' | 'compl
 export type SaleType = 'service' | 'product' | 'other';
 export type PaymentMethod = 'efectivo' | 'transferencia' | 'debito' | 'credito';
 export type ShopPlan = 'starter' | 'pro';
+export type DepositType = 'none' | 'percent' | 'fixed' | 'full';
 
 export type Shop = {
   id: string;
@@ -24,6 +25,10 @@ export type Service = {
   duration_mins: number;
   price: number;
   is_active: boolean;
+  // Cobro anticipado (seña): 'none' = sin seña, 'percent' = % del precio,
+  // 'fixed' = monto fijo en pesos, 'full' = 100% del precio.
+  deposit_type: DepositType;
+  deposit_amount: number;
   created_at: string;
 };
 
