@@ -147,6 +147,11 @@ export function BookingFlow({
 
         {step === 2 && service && (
           <>
+            {error && (
+              <div className="mb-3">
+                <Toast tone="error" message={error} onClose={() => setError(null)} />
+              </div>
+            )}
             <SectionLabel>SERVICIO</SectionLabel>
             <div className="bg-ink text-bg rounded-xl px-4 py-3.5 flex items-center justify-between">
               <div>
@@ -239,10 +244,12 @@ export function BookingFlow({
                     <button key={s.iso} type="button" disabled={s.taken}
                       onClick={() => setSlotISO(s.iso)}
                       aria-pressed={sel}
-                      aria-label={s.taken ? `${s.time} no disponible` : `Elegir ${s.time}`}
+                      aria-disabled={s.taken}
+                      aria-label={s.taken ? `${s.time} ocupado` : `Elegir ${s.time}`}
+                      title={s.taken ? 'Ocupado' : undefined}
                       className={`min-h-[44px] py-3 rounded-m text-center font-mono text-[13px] font-medium transition active:scale-[0.95]
                         ${sel ? 'bg-ink text-bg border-0' :
-                          s.taken ? 'border border-dashed border-line text-muted line-through cursor-not-allowed' :
+                          s.taken ? 'border border-dashed border-line bg-bg text-muted line-through opacity-50 cursor-not-allowed' :
                           'bg-card border border-line text-ink hover:border-ink/30'}`}>
                       {s.time}
                     </button>
@@ -339,17 +346,27 @@ export function BookingFlow({
             disabled={pending || !name || !email || !phone || !slotISO || !serviceId}
             onClick={() => start(async () => {
               setError(null);
+              const takenIso = slotISO!;
               const res = await createBooking({
                 shopSlug,
                 serviceId: serviceId!,
                 barberId: barberId as any,
-                startsAt: slotISO!,
+                startsAt: takenIso,
                 customerName: name,
                 customerPhone: phone,
                 customerEmail: email,
                 ...(rescheduleFromId ? { rescheduleFromId } : {})
               });
-              if (res?.error) setError(res.error);
+              if (res?.error) {
+                if ((res as any).code === 'SLOT_TAKEN') {
+                  setSlots(prev => prev.map(s => s.iso === takenIso ? { ...s, taken: true } : s));
+                  setSlotISO(null);
+                  setError(res.error);
+                  goStep(2);
+                } else {
+                  setError(res.error);
+                }
+              }
             })}
             className="bg-accent text-white px-6 py-3.5 rounded-xl text-[14px] font-semibold flex items-center gap-2 disabled:opacity-50 active:scale-[0.97] transition">
             {pending ? 'Confirmando…' : (<>Confirmar turno <Icon name="arrow-right" size={16} color="#fff"/></>)}

@@ -87,7 +87,7 @@ export async function createBooking(input: z.infer<typeof BookingSchema>) {
         .limit(1);
       if (!conflicts || conflicts.length === 0) { barberId = b.id; break; }
     }
-    if (barberId === 'any') return { error: 'No hay barberos libres en ese horario. Probá con otro.' };
+    if (barberId === 'any') return { error: 'Ese horario ya está ocupado. Elegí otro.', code: 'SLOT_TAKEN' as const };
   } else {
     const { data: barber } = await admin
       .from('barbers').select('id').eq('id', barberId).eq('shop_id', shop.id).eq('is_active', true).maybeSingle();
@@ -163,7 +163,7 @@ export async function createBooking(input: z.infer<typeof BookingSchema>) {
 
   if (insErr) {
     if (insErr.message.toLowerCase().includes('exclude')) {
-      return { error: 'Ese horario se acaba de ocupar. Probá con otro.' };
+      return { error: 'Ese horario se acaba de ocupar. Elegí otro.', code: 'SLOT_TAKEN' as const };
     }
     return { error: insErr.message };
   }
