@@ -315,27 +315,113 @@ export async function createBooking(input: z.infer<typeof BookingSchema>) {
   redirect(`/${data.shopSlug}/confirmacion/${appointment!.id}`);
 }
 
+/**
+ * Política de cancelación con reembolso parcial.
+ *
+ * - ≥3 hs antes del turno: se reembolsa todo lo pagado MENOS el 20% del
+ *   precio del servicio (la "seña dura" no reembolsable).
+ * - <3 hs antes o no-show: se pierde lo pagado.
+ * - Sin pago (seña no requerida) → cancelación libre, sin reembolso que
+ *   procesar.
+ */
+const CANCEL_WINDOW_HOURS = 3;
+const NON_REFUNDABLE_PCT = 20;
+
 export async function cancelAppointment(id: string) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: 'No autenticado' };
 
-  const { data: appt, error } = await supabase
+  const admin = createAdminClient();
+
+  // Leemos el turno completo antes de cancelarlo: necesitamos saber si lleva
+  // pago, cuánto, y a cuánto del turno faltamos para aplicar la política.
+  const { data: appt } = await admin
     .from('appointments')
-    .update({ status: 'cancelled' })
+    .select('id, shop_id, profile_id, status, starts_at, payment_status, payment_amount, payment_external_id, payment_provider, service_id, services(price)')
     .eq('id', id)
     .eq('profile_id', user.id)
-    .select('shop_id')
-    .maybeSingle<{ shop_id: string }>();
-  if (error) return { error: error.message };
-
-  if (appt?.shop_id) {
-    const admin = createAdminClient();
-    const { data: shop } = await admin
-      .from('shops').select('slug').eq('id', appt.shop_id).maybeSingle<{ slug: string }>();
-    if (shop?.slug) revalidatePath(`/${shop.slug}/mis-turnos`);
+    .maybeSingle<{
+      id: string;
+      shop_id: string;
+      profile_id: string;
+      status: string;
+      starts_at: string;
+      payment_status: string;
+      payment_amount: number | null;
+      payment_external_id: string | null;
+      payment_provider: string | null;
+      service_id: string;
+      services: { price: number } | null;
+    }>();
+  if (!appt) return { error: 'Turno no encontrado' };
+  if (appt.status === 'cancelled' || appt.status === 'expired') {
+    return { error: 'Ese turno ya está cancelado.' };
   }
-  return { ok: true };
+
+  // Calcular cuánto reembolsar.
+  const startsAtMs = new Date(appt.starts_at).getTime();
+  const nowMs = Date.now();
+  const hoursToStart = (startsAtMs - nowMs) / (60 * 60 * 1000);
+  const inWindow = hoursToStart >= CANCEL_WINDOW_HOURS;
+
+  let refundAmount = 0;
+  let newPaymentStatus = appt.payment_status;
+  let refundError: string | null = null;
+
+  if (appt.payment_status === 'paid' && Number(appt.payment_amount || 0) > 0) {
+    if (inWindow) {
+      const paid = Number(appt.payment_amount);
+      const servicePrice = Number(appt.services?.price || 0);
+      const nonRefundable = Math.round(servicePrice * NON_REFUNDABLE_PCT) / 100;
+      refundAmount = Math.max(0, paid - nonRefundable);
+      // Si el refund es exactamente el monto pagado, payment_status='refunded';
+      // si es parcial, 'partial_refund'; si es 0, sigue 'paid' pero el turno
+      // queda cancelado igual.
+      if (refundAmount > 0 && appt.payment_provider === 'mercadopago' && appt.payment_external_id) {
+        try {
+          const { data: settings } = await admin
+            .from('shop_payment_settings')
+            .select('mp_access_token, is_active')
+            .eq('shop_id', appt.shop_id)
+            .maybeSingle<{ mp_access_token: string | null; is_active: boolean }>();
+          if (settings?.is_active && settings.mp_access_token) {
+            const { refundMpPayment } = await import('@/lib/mercadopago');
+            await refundMpPayment(settings.mp_access_token, appt.payment_external_id, refundAmount);
+            newPaymentStatus = refundAmount >= paid ? 'refunded' : 'partial_refund';
+          } else {
+            refundError = 'No pudimos procesar el reembolso automáticamente. El dueño te va a contactar.';
+          }
+        } catch (e) {
+          console.error('[cancelAppointment] MP refund failed:', e);
+          refundError = 'No pudimos procesar el reembolso automáticamente. El dueño te va a contactar.';
+        }
+      } else if (refundAmount === 0) {
+        // El reembolso da 0 (pagó exactamente la seña dura) → no llamamos a MP
+        // pero igual marcamos como partial_refund para que quede el rastro de
+        // que se aplicó la política.
+        newPaymentStatus = 'partial_refund';
+      }
+    }
+    // Fuera de ventana: se pierde lo pagado → payment_status sigue 'paid'.
+  }
+
+  const { error: updErr } = await admin
+    .from('appointments')
+    .update({ status: 'cancelled', payment_status: newPaymentStatus })
+    .eq('id', id);
+  if (updErr) return { error: updErr.message };
+
+  const { data: shop } = await admin
+    .from('shops').select('slug').eq('id', appt.shop_id).maybeSingle<{ slug: string }>();
+  if (shop?.slug) revalidatePath(`/${shop.slug}/mis-turnos`);
+
+  return {
+    ok: true,
+    refundAmount,
+    inWindow,
+    refundError
+  };
 }
 
 const MoveSchema = z.object({

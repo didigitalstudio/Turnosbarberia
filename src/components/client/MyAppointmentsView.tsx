@@ -5,10 +5,13 @@ import { Icon } from '@/components/shared/Icon';
 import { Pill } from '@/components/shared/Pill';
 import { Toast } from '@/components/shared/Toast';
 import { EmptyState } from '@/components/shared/EmptyState';
+import { money } from '@/lib/format';
 import { cancelAppointment } from '@/app/actions/booking';
 
 type Upcoming = {
   id: string; starts_at: string; status: string; service_id?: string;
+  payment_status?: string | null;
+  payment_amount?: number | null;
   services: { name: string; duration_mins: number; price: number };
   barbers: { name: string };
 };
@@ -30,12 +33,20 @@ export function MyAppointmentsView({ slug, upcoming, history }: { slug: string; 
     return `/${slug}/reservar${tail ? `?${tail}` : ''}`;
   };
 
+  const [cancelInfo, setCancelInfo] = useState<{ refund: number; inWindow: boolean; refundError: string | null } | null>(null);
+
   const doCancel = (id: string) => {
     setConfirmCancel(null);
     start(async () => {
       setError(null);
+      setCancelInfo(null);
       const r = await cancelAppointment(id);
-      if (r?.error) setError(r.error);
+      if (r?.error) { setError(r.error); return; }
+      setCancelInfo({
+        refund: Number(r?.refundAmount || 0),
+        inWindow: Boolean(r?.inWindow),
+        refundError: r?.refundError || null
+      });
     });
   };
 
@@ -126,22 +137,79 @@ export function MyAppointmentsView({ slug, upcoming, history }: { slug: string; 
 
       {confirmCancel && (
         <CancelConfirmDialog
+          appointment={upcoming.find(u => u.id === confirmCancel)}
           onConfirm={() => doCancel(confirmCancel)}
           onClose={() => setConfirmCancel(null)}
           pending={pending}
+        />
+      )}
+
+      {cancelInfo && (
+        <CancelResultDialog
+          info={cancelInfo}
+          onClose={() => setCancelInfo(null)}
         />
       )}
     </div>
   );
 }
 
-function CancelConfirmDialog({
-  onConfirm, onClose, pending
+function CancelResultDialog({
+  info, onClose
 }: {
+  info: { refund: number; inWindow: boolean; refundError: string | null };
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 grid place-items-center p-5" role="dialog" aria-modal="true">
+      <div className="w-full max-w-[340px] bg-card border border-line rounded-2xl p-5">
+        <div className="font-display text-[22px] leading-tight">Turno cancelado</div>
+        {info.refundError ? (
+          <p className="text-[13px] text-muted mt-2 leading-relaxed">{info.refundError}</p>
+        ) : info.refund > 0 ? (
+          <p className="text-[13px] text-muted mt-2 leading-relaxed">
+            Estamos reembolsando <span className="text-ink font-medium">{money(info.refund)}</span> a tu medio de pago.
+            Tarda hasta 5 días hábiles en aparecer.
+          </p>
+        ) : info.inWindow ? (
+          <p className="text-[13px] text-muted mt-2 leading-relaxed">
+            No corresponde reembolso (la seña no era reembolsable).
+          </p>
+        ) : (
+          <p className="text-[13px] text-muted mt-2 leading-relaxed">
+            Cancelaste con menos de 3 horas — según la política, no hay reembolso.
+          </p>
+        )}
+        <div className="flex justify-end mt-4">
+          <button type="button" onClick={onClose}
+            className="min-h-[42px] bg-ink text-bg rounded-m px-5 py-2 text-[13px] font-semibold active:scale-[0.98] transition">
+            Listo
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CancelConfirmDialog({
+  appointment, onConfirm, onClose, pending
+}: {
+  appointment?: Upcoming;
   onConfirm: () => void;
   onClose: () => void;
   pending: boolean;
 }) {
+  const paid = Number(appointment?.payment_amount || 0);
+  const hasPaid = appointment?.payment_status === 'paid' && paid > 0;
+  const servicePrice = Number(appointment?.services?.price || 0);
+  const nonRefundable = Math.round(servicePrice * 20) / 100;
+  const refundable = Math.max(0, paid - nonRefundable);
+
+  // ¿Estamos a ≥3 hs del turno?
+  const startsAtMs = appointment ? new Date(appointment.starts_at).getTime() : 0;
+  const hoursToStart = appointment ? (startsAtMs - Date.now()) / (60 * 60 * 1000) : 0;
+  const inWindow = hoursToStart >= 3;
+
   return (
     <div className="fixed inset-0 z-50 bg-black/60 grid place-items-center p-5" role="dialog" aria-modal="true">
       <div className="w-full max-w-[340px] bg-card border border-line rounded-2xl p-5">
@@ -149,6 +217,21 @@ function CancelConfirmDialog({
         <p className="text-[13px] text-muted mt-2 leading-relaxed">
           Esta acción no se puede deshacer. Si querés reprogramar, cerrá este aviso y tocá Reprogramar.
         </p>
+
+        {hasPaid && (
+          <div className="mt-3 bg-bg border border-line rounded-m px-3 py-2.5 text-[12px] leading-relaxed">
+            {inWindow ? (
+              refundable > 0 ? (
+                <>Estás a tiempo: te devolvemos <span className="font-medium text-ink">{money(refundable)}</span>. La seña dura ({money(nonRefundable)}) no es reembolsable.</>
+              ) : (
+                <>Cancelando ahora no corresponde reembolso (la seña pagada equivale a la seña dura no reembolsable).</>
+              )
+            ) : (
+              <>Cancelando a menos de 3 hs del turno se pierde lo pagado (<span className="font-medium text-ink">{money(paid)}</span>).</>
+            )}
+          </div>
+        )}
+
         <div className="flex gap-2 mt-4">
           <button type="button" onClick={onClose} disabled={pending}
             className="flex-1 min-h-[42px] bg-transparent border border-line text-ink rounded-m px-3 py-2 text-[13px] font-medium active:scale-[0.98] transition">
