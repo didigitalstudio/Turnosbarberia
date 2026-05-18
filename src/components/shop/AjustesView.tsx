@@ -11,15 +11,24 @@ import {
   addShop, switchShop
 } from '@/app/actions/ajustes';
 import { upsertShopPaymentSettings } from '@/app/actions/payments';
+import { upsertShopWhatsappSettings } from '@/app/actions/whatsapp';
 import { slugify } from '@/lib/slug';
 import type { Shop, Service, Barber, Schedule } from '@/types/db';
 
-type Tab = 'shop' | 'services' | 'team' | 'hours' | 'sedes' | 'pagos';
+type Tab = 'shop' | 'services' | 'team' | 'hours' | 'sedes' | 'pagos' | 'whatsapp';
 
 export type ShopPaymentSettings = {
   mp_access_token: string | null;
   mp_public_key: string | null;
   mp_webhook_secret: string | null;
+  is_active: boolean;
+};
+
+export type ShopWhatsappSettings = {
+  phone_number_id: string | null;
+  access_token: string | null;
+  reminder_template_name: string;
+  reminder_template_language: string;
   is_active: boolean;
 };
 
@@ -34,7 +43,7 @@ const DAYS = [
 ];
 
 export function AjustesView({
-  shop, services, barbers, schedules, publicUrl, userShops, paymentSettings
+  shop, services, barbers, schedules, publicUrl, userShops, paymentSettings, whatsappSettings
 }: {
   shop: Shop;
   services: Service[];
@@ -43,6 +52,7 @@ export function AjustesView({
   publicUrl: string;
   userShops: Shop[];
   paymentSettings: ShopPaymentSettings | null;
+  whatsappSettings: ShopWhatsappSettings | null;
 }) {
   const [tab, setTab] = useState<Tab>('shop');
   const [toast, setToast] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
@@ -60,7 +70,7 @@ export function AjustesView({
 
       {/* Tabs */}
       <div className="mt-5 flex gap-1 bg-dark-card border border-dark-line rounded-xl p-1 w-full md:max-w-2xl overflow-x-auto no-scrollbar">
-        {(['shop', 'services', 'team', 'hours', 'sedes', 'pagos'] as Tab[]).map(t => (
+        {(['shop', 'services', 'team', 'hours', 'sedes', 'pagos', 'whatsapp'] as Tab[]).map(t => (
           <button
             key={t}
             type="button"
@@ -79,6 +89,7 @@ export function AjustesView({
         {tab === 'hours' && <HoursSection barbers={barbers} schedules={schedules} onToast={setToast} />}
         {tab === 'sedes' && <SedesSection shop={shop} userShops={userShops} onToast={setToast} />}
         {tab === 'pagos' && <PagosSection settings={paymentSettings} onToast={setToast} />}
+        {tab === 'whatsapp' && <WhatsappSection settings={whatsappSettings} onToast={setToast} />}
       </div>
     </div>
   );
@@ -90,7 +101,8 @@ function tabLabel(t: Tab) {
     : t === 'team' ? 'Equipo'
     : t === 'hours' ? 'Horarios'
     : t === 'sedes' ? 'Sedes'
-    : 'Pagos';
+    : t === 'pagos' ? 'Pagos'
+    : 'WhatsApp';
 }
 
 // ─── Public link banner ──────────────────────────────────────────────────────
@@ -885,6 +897,155 @@ function PagosSection({
           <li>El día del turno, en Caja figura el saldo restante (precio total menos seña ya cobrada).</li>
           <li>Si el cliente cancela con ≥3 hs de anticipación, le devolvemos todo menos el 20% del precio (seña dura). Después no.</li>
         </ol>
+      </div>
+    </div>
+  );
+}
+
+// ─── WhatsApp section (Meta Cloud API) ───────────────────────────────────────
+
+function WhatsappSection({
+  settings, onToast
+}: {
+  settings: ShopWhatsappSettings | null;
+  onToast: (t: { tone: 'success' | 'error'; text: string }) => void;
+}) {
+  const [pending, start] = useTransition();
+  const [phoneNumberId, setPhoneNumberId] = useState(settings?.phone_number_id || '');
+  const [accessToken, setAccessToken] = useState(settings?.access_token || '');
+  const [templateName, setTemplateName] = useState(settings?.reminder_template_name || 'appointment_reminder');
+  const [templateLanguage, setTemplateLanguage] = useState(settings?.reminder_template_language || 'es_AR');
+  const [isActive, setIsActive] = useState(Boolean(settings?.is_active));
+  const [showToken, setShowToken] = useState(false);
+
+  const save = () => {
+    start(async () => {
+      const r = await upsertShopWhatsappSettings({
+        phone_number_id: phoneNumberId.trim() || '',
+        access_token: accessToken.trim() || '',
+        reminder_template_name: templateName.trim(),
+        reminder_template_language: templateLanguage.trim(),
+        is_active: isActive
+      });
+      if (r?.error) onToast({ tone: 'error', text: r.error });
+      else onToast({ tone: 'success', text: 'Configuración de WhatsApp guardada' });
+    });
+  };
+
+  const toggleActive = () => {
+    if (!accessToken.trim() && !isActive) {
+      onToast({ tone: 'error', text: 'Cargá primero el access token y el phone number ID' });
+      return;
+    }
+    if (!phoneNumberId.trim() && !isActive) {
+      onToast({ tone: 'error', text: 'Falta el phone number ID' });
+      return;
+    }
+    setIsActive(v => !v);
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="bg-dark-card border border-dark-line rounded-xl px-4 py-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <div className="font-mono text-[10px] tracking-[2px] text-dark-muted">WHATSAPP</div>
+            <div className="text-[14px] font-semibold text-bg mt-0.5">
+              {isActive ? 'Activo · recordatorios automáticos' : 'Inactivo · sin envíos'}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={toggleActive}
+            className={`text-[11px] px-3 py-2 rounded-m font-semibold transition ${isActive ? 'bg-bg text-ink' : 'bg-accent text-white'}`}>
+            {isActive ? 'Desactivar' : 'Activar'}
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-dark-card border border-dark-line rounded-xl p-4 flex flex-col gap-2.5">
+        <div className="font-mono text-[10px] tracking-[2px] text-dark-muted">CREDENCIALES</div>
+        <div className="text-[12px] text-dark-muted leading-relaxed">
+          Las generás en <span className="text-bg">business.facebook.com → WhatsApp → API Setup</span>.
+          Necesitás un número verificado con Meta (sin línea celular activa de WhatsApp normal) y un
+          access token de tipo <span className="text-bg">System User</span> con permisos
+          <span className="font-mono text-bg"> whatsapp_business_messaging</span>.
+        </div>
+
+        <Field label="Phone Number ID">
+          <input
+            value={phoneNumberId}
+            onChange={e => setPhoneNumberId(e.target.value)}
+            placeholder="123456789012345"
+            className="bg-transparent text-bg w-full outline-none font-mono text-[13px]"
+          />
+        </Field>
+
+        <Field label="Access token (System User)">
+          <div className="flex items-center gap-2">
+            <input
+              type={showToken ? 'text' : 'password'}
+              value={accessToken}
+              onChange={e => setAccessToken(e.target.value)}
+              placeholder="EAA..."
+              className="bg-transparent text-bg w-full outline-none font-mono text-[13px]"
+            />
+            <button
+              type="button"
+              onClick={() => setShowToken(v => !v)}
+              className="text-[10px] text-dark-muted hover:text-bg transition uppercase tracking-[1px]">
+              {showToken ? 'Ocultar' : 'Ver'}
+            </button>
+          </div>
+        </Field>
+
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Nombre del template">
+            <input
+              value={templateName}
+              onChange={e => setTemplateName(e.target.value)}
+              placeholder="appointment_reminder"
+              className="bg-transparent text-bg w-full outline-none font-mono text-[13px]"
+            />
+          </Field>
+          <Field label="Idioma del template">
+            <input
+              value={templateLanguage}
+              onChange={e => setTemplateLanguage(e.target.value)}
+              placeholder="es_AR"
+              className="bg-transparent text-bg w-full outline-none font-mono text-[13px]"
+            />
+          </Field>
+        </div>
+
+        <div className="flex gap-2 mt-1">
+          <button
+            type="button"
+            onClick={save}
+            disabled={pending}
+            className="bg-accent text-white px-4 py-2.5 rounded-m text-[13px] font-semibold disabled:opacity-50 active:scale-[0.97] transition">
+            {pending ? 'Guardando…' : 'Guardar credenciales'}
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-dark-card border border-dark-line rounded-xl p-4 text-[12px] text-dark-muted leading-relaxed">
+        <div className="font-semibold text-bg mb-1.5">Template necesario en Meta</div>
+        <p>Antes de activar, registrá este template en el WhatsApp Manager del cliente:</p>
+        <div className="mt-2 p-3 bg-dark border border-dark-line rounded-m font-mono text-[11px] text-bg whitespace-pre-wrap">
+{`Nombre: appointment_reminder
+Categoría: Utility
+Idioma: es_AR
+Cuerpo:
+Hola {{1}}, te recordamos tu turno mañana a las {{2}} en {{3}} con {{4}}. Si no podés venir, cancelalo desde la app.`}
+        </div>
+        <p className="mt-2.5 text-[11px]">
+          Variables: <span className="text-bg">{`{{1}}`}</span> nombre del cliente · <span className="text-bg">{`{{2}}`}</span> hora · <span className="text-bg">{`{{3}}`}</span> nombre del shop · <span className="text-bg">{`{{4}}`}</span> nombre del barbero.
+        </p>
+        <p className="mt-2.5 text-[11px]">
+          La aprobación de Meta tarda entre 5 minutos y 24 hs. Una vez aprobado, el cron de recordatorios
+          (que ya se ejecuta diariamente para email) va a mandar también el WhatsApp.
+        </p>
       </div>
     </div>
   );

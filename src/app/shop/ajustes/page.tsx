@@ -17,7 +17,7 @@ export default async function AjustesPage() {
 
   const admin = createAdminClient();
 
-  const [{ data: services }, { data: barbers }, { data: schedules }, userShops, { data: paymentSettings }] = await Promise.all([
+  const [{ data: services }, { data: barbers }, { data: schedules }, userShops, { data: paymentSettings }, { data: whatsappSettings }] = await Promise.all([
     supabase.from('services').select('*').eq('shop_id', shop.id).order('created_at'),
     supabase.from('barbers').select('*').eq('shop_id', shop.id).order('created_at'),
     supabase.from('schedules').select('*').eq('shop_id', shop.id),
@@ -25,6 +25,11 @@ export default async function AjustesPage() {
     admin
       .from('shop_payment_settings')
       .select('mp_access_token, mp_public_key, mp_webhook_secret, is_active')
+      .eq('shop_id', shop.id)
+      .maybeSingle(),
+    admin
+      .from('shop_whatsapp_settings')
+      .select('phone_number_id, access_token, reminder_template_name, reminder_template_language, is_active')
       .eq('shop_id', shop.id)
       .maybeSingle()
   ]);
@@ -43,6 +48,7 @@ export default async function AjustesPage() {
         publicUrl={publicUrl}
         userShops={userShops}
         paymentSettings={(paymentSettings as any) || null}
+        whatsappSettings={(whatsappSettings as any) || null}
       />
       <form action={signOut} className="px-5 pb-6 md:px-8 md:max-w-3xl md:mx-auto md:w-full">
         <button className="w-full bg-dark-card border border-dark-line text-bg rounded-xl px-4 py-3 text-[13px] font-medium text-left hover:border-bg/30 transition">
