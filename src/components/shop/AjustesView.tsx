@@ -522,7 +522,7 @@ function SedesSection({
       });
       if (r?.error) onToast({ tone: 'error', text: r.error });
       else {
-        onToast({ tone: 'success', text: 'Sede creada. Queda pendiente de activación.' });
+        onToast({ tone: 'success', text: 'Sede creada y activa.' });
         setDraft(null);
         // Al crearse, el trigger cambia profile.shop_id al nuevo shop → refresh.
         window.location.reload();
