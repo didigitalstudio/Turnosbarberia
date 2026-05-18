@@ -110,9 +110,15 @@ export async function sendAppointmentReminderToCustomer(args: {
   serviceName: string;
   barberName: string;
   startsAt: string; // ISO
+  /** Si tuvo seña, monto restante a pagar el día del turno. Si no aplica, omitir. */
+  balanceDue?: number;
 }): Promise<SendResult> {
   const when = formatWhen(args.startsAt);
   const link = `${siteUrl()}/${args.shopSlug}/mis-turnos`;
+  const balance = Number(args.balanceDue || 0);
+  const balanceLine = balance > 0
+    ? `<li>Saldo a pagar en el local: <b>${escapeHtml(formatMoney(balance))}</b></li>`
+    : '';
   const body = `
     <div style="font-family:'Instrument Serif',Times,serif;font-size:26px;line-height:1.15;margin:0 0 6px;">Recordatorio de turno</div>
     <div style="color:#7A766E;font-size:12px;margin-bottom:16px;">en ${escapeHtml(args.shopName)}</div>
@@ -120,11 +126,16 @@ export async function sendAppointmentReminderToCustomer(args: {
     <ul style="padding-left:18px;margin:8px 0 18px;">
       <li><b>${escapeHtml(args.serviceName)}</b> con <b>${escapeHtml(args.barberName)}</b></li>
       <li>${escapeHtml(when)}</li>
+      ${balanceLine}
     </ul>
     <p style="margin:18px 0 6px;">${button('Ver mi turno', link)}</p>
     <p style="color:#7A766E;font-size:12px;margin-top:18px;">Si no vas a poder ir, cancelalo desde la app así liberamos el horario para alguien más.</p>
   `;
   return sendEmail({ to: args.to, subject: `Mañana: ${args.serviceName} en ${args.shopName}`, html: shell('Recordatorio', body) });
+}
+
+function formatMoney(n: number): string {
+  return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n || 0);
 }
 
 export async function sendBookingConfirmationToCustomer(args: {
@@ -135,9 +146,27 @@ export async function sendBookingConfirmationToCustomer(args: {
   serviceName: string;
   barberName: string;
   startsAt: string; // ISO
+  /** Si entró pago de seña vía MP, monto. Sin esto, se omite el bloque de recibo. */
+  depositPaid?: number;
+  servicePrice?: number;
 }): Promise<SendResult> {
   const when = formatWhen(args.startsAt);
   const link = `${siteUrl()}/${args.shopSlug}/mis-turnos`;
+  const deposit = Number(args.depositPaid || 0);
+  const price = Number(args.servicePrice || 0);
+  const balance = Math.max(0, price - deposit);
+  const receiptBlock = deposit > 0 ? `
+    <div style="margin:16px 0;padding:14px 16px;background:#F5F3EE;border:1px solid #E3DFD6;border-radius:10px;">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:#7A766E;margin-bottom:6px;">Recibo de seña</div>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;font-size:13px;">
+        <tr><td style="color:#7A766E;">Seña pagada</td><td align="right" style="font-family:monospace;font-weight:600;">${escapeHtml(formatMoney(deposit))}</td></tr>
+        ${price > 0 ? `<tr><td style="color:#7A766E;">Precio total</td><td align="right" style="font-family:monospace;">${escapeHtml(formatMoney(price))}</td></tr>` : ''}
+        ${balance > 0 ? `<tr><td style="color:#7A766E;">Saldo el día del turno</td><td align="right" style="font-family:monospace;font-weight:600;">${escapeHtml(formatMoney(balance))}</td></tr>` : ''}
+      </table>
+    </div>
+    <p style="color:#7A766E;font-size:11px;margin:8px 0 0;">Política de cancelación: hasta 3 hs antes del turno te devolvemos todo menos el 20% del precio del servicio. Después no hay reembolso.</p>
+  ` : '';
+
   const body = `
     <div style="font-family:'Instrument Serif',Times,serif;font-size:26px;line-height:1.15;margin:0 0 6px;">Turno confirmado</div>
     <div style="color:#7A766E;font-size:12px;margin-bottom:16px;">en ${escapeHtml(args.shopName)}</div>
@@ -146,6 +175,7 @@ export async function sendBookingConfirmationToCustomer(args: {
       <li><b>${escapeHtml(args.serviceName)}</b> con <b>${escapeHtml(args.barberName)}</b></li>
       <li>${escapeHtml(when)}</li>
     </ul>
+    ${receiptBlock}
     <p style="margin:18px 0 6px;">${button('Ver mis turnos', link)}</p>
     <p style="color:#7A766E;font-size:12px;margin-top:18px;">Si no vas a poder ir, cancelá desde la app así liberamos el horario.</p>
   `;

@@ -125,7 +125,7 @@ export async function POST(request: Request) {
       try {
         const [{ data: shop }, { data: svc }, { data: barber }] = await Promise.all([
           admin.from('shops').select('name, slug, owner_id').eq('id', updated.shop_id).maybeSingle<{ name: string; slug: string; owner_id: string | null }>(),
-          admin.from('services').select('name').eq('id', updated.service_id).maybeSingle<{ name: string }>(),
+          admin.from('services').select('name, price').eq('id', updated.service_id).maybeSingle<{ name: string; price: number }>(),
           admin.from('barbers').select('name').eq('id', updated.barber_id).maybeSingle<{ name: string }>()
         ]);
         if (shop) {
@@ -136,7 +136,9 @@ export async function POST(request: Request) {
             shopSlug: shop.slug,
             serviceName: svc?.name || 'Servicio',
             barberName: barber?.name || 'tu barbero',
-            startsAt: updated.starts_at
+            startsAt: updated.starts_at,
+            depositPaid: payment.transaction_amount,
+            servicePrice: Number(svc?.price || 0)
           });
           if (shop.owner_id) {
             const { data: ownerRes } = await admin.auth.admin.getUserById(shop.owner_id);

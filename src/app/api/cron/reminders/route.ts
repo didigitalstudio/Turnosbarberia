@@ -39,7 +39,7 @@ export async function GET(request: Request) {
 
   const { data: appointments, error } = await admin
     .from('appointments')
-    .select('id, starts_at, customer_name, customer_email, notes, shop_id, barbers(name), services(name), shops(name, slug)')
+    .select('id, starts_at, customer_name, customer_email, notes, shop_id, payment_status, payment_amount, barbers(name), services(name, price), shops(name, slug)')
     .gte('starts_at', tomorrowStart.toISOString())
     .lt('starts_at', tomorrowEnd.toISOString())
     .in('status', ['pending', 'confirmed'])
@@ -59,6 +59,11 @@ export async function GET(request: Request) {
     if (notes.includes(REMINDER_TAG)) { skipped++; continue; }
     if (!row.customer_email) { skipped++; continue; }
 
+    // Si pagó seña, calculamos el saldo restante para incluirlo en el recordatorio.
+    const price = Number(row.services?.price || 0);
+    const deposit = row.payment_status === 'paid' ? Number(row.payment_amount || 0) : 0;
+    const balanceDue = Math.max(0, price - deposit);
+
     const result = await sendAppointmentReminderToCustomer({
       to: row.customer_email,
       customerName: row.customer_name || '',
@@ -66,7 +71,8 @@ export async function GET(request: Request) {
       shopSlug: row.shops?.slug || '',
       serviceName: row.services?.name || 'servicio',
       barberName: row.barbers?.name || '',
-      startsAt: row.starts_at
+      startsAt: row.starts_at,
+      balanceDue: deposit > 0 ? balanceDue : undefined
     });
 
     if ('ok' in result && result.ok) {
