@@ -102,8 +102,16 @@ export const UpsertServiceSchema = z.object({
   name: shopNameSchema,
   duration_mins: z.coerce.number().int().min(5, 'Mínimo 5 min').max(480, 'Máximo 480 min'),
   price: z.coerce.number().min(0, 'Precio negativo').max(10_000_000, 'Precio demasiado alto'),
-  description: z.string().trim().max(240).optional().or(z.literal(''))
-});
+  description: z.string().trim().max(240).optional().or(z.literal('')),
+  deposit_type: z.enum(['none', 'percent', 'fixed', 'full']).optional().default('none'),
+  deposit_amount: z.coerce.number().min(0).max(10_000_000).optional().default(0)
+}).refine(
+  (d) => d.deposit_type !== 'percent' || (d.deposit_amount >= 0 && d.deposit_amount <= 100),
+  { message: 'El porcentaje de seña debe estar entre 0 y 100', path: ['deposit_amount'] }
+).refine(
+  (d) => d.deposit_type === 'none' || d.deposit_amount > 0 || d.deposit_type === 'full',
+  { message: 'La seña debe ser mayor a 0', path: ['deposit_amount'] }
+);
 
 export const UpsertBarberSchema = z.object({
   id: uuidSchema.optional(),

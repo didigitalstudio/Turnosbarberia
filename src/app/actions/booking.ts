@@ -19,6 +19,32 @@ import { partsInAR } from '@/lib/tz';
 const NAME_RE  = /^[\p{L}\s'.-]{2,80}$/u;
 const PHONE_RE = /^[+\d\s()-]{6,30}$/;
 
+/**
+ * Monto de seña requerido para un servicio. Devuelve 0 si no exige seña.
+ * - 'percent': % del precio (redondeado a 2 decimales).
+ * - 'fixed': monto fijo en pesos.
+ * - 'full': 100% del precio.
+ * - 'none': 0.
+ */
+function computeDepositAmount(service: {
+  price: number;
+  deposit_type: 'none' | 'percent' | 'fixed' | 'full';
+  deposit_amount: number;
+}): number {
+  const price = Number(service.price) || 0;
+  switch (service.deposit_type) {
+    case 'percent':
+      return Math.round(price * (Number(service.deposit_amount) || 0)) / 100;
+    case 'fixed':
+      return Math.min(price, Number(service.deposit_amount) || 0);
+    case 'full':
+      return price;
+    case 'none':
+    default:
+      return 0;
+  }
+}
+
 const BookingSchema = z.object({
   shopSlug:          z.string().min(1).max(50),
   serviceId:         z.string().uuid(),
@@ -58,13 +84,26 @@ export async function createBooking(input: z.infer<typeof BookingSchema>) {
   }
 
   const admin = createAdminClient();
+
+  // Antes de buscar conflictos y reservar, liberamos los holds vencidos
+  // para que un slot pending_payment ya caducado no bloquee al cliente actual.
+  await admin.rpc('release_expired_holds').then(() => null, () => null);
+
   const { data: service } = await admin
     .from('services')
-    .select('id, duration_mins, is_active, shop_id')
+    .select('id, duration_mins, price, is_active, shop_id, deposit_type, deposit_amount')
     .eq('id', data.serviceId)
     .eq('shop_id', shop.id)
     .eq('is_active', true)
-    .maybeSingle();
+    .maybeSingle<{
+      id: string;
+      duration_mins: number;
+      price: number;
+      is_active: boolean;
+      shop_id: string;
+      deposit_type: 'none' | 'percent' | 'fixed' | 'full';
+      deposit_amount: number;
+    }>();
   if (!service) {
     return { error: 'Ese servicio ya no está disponible.' };
   }
@@ -81,7 +120,7 @@ export async function createBooking(input: z.infer<typeof BookingSchema>) {
         .select('id')
         .eq('shop_id', shop.id)
         .eq('barber_id', b.id)
-        .neq('status', 'cancelled')
+        .not('status', 'in', '("cancelled","no_show","expired")')
         .lt('starts_at', endsAt.toISOString())
         .gt('ends_at', startsAt.toISOString())
         .limit(1);
@@ -118,6 +157,9 @@ export async function createBooking(input: z.infer<typeof BookingSchema>) {
 
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return { error: 'Para reservar tenés que iniciar sesión.', code: 'AUTH_REQUIRED' as const };
+  }
 
   // Reprogramación: validamos PRIMERO que el turno viejo existe y pertenece
   // al user, así no terminamos con dos turnos activos si el cancel falla
@@ -125,9 +167,6 @@ export async function createBooking(input: z.infer<typeof BookingSchema>) {
   // nada.
   let rescheduleTargetId: string | null = null;
   if (data.rescheduleFromId) {
-    if (!user) {
-      return { error: 'Para reprogramar tenés que estar logueado.' };
-    }
     const { data: oldAppt } = await admin
       .from('appointments')
       .select('id, status')
@@ -144,11 +183,23 @@ export async function createBooking(input: z.infer<typeof BookingSchema>) {
     rescheduleTargetId = oldAppt.id;
   }
 
+  // Si el servicio exige seña, calculamos el monto y el turno se crea como
+  // 'pending_payment' con un hold de 10 minutos. Sin pago confirmado en
+  // ese tiempo, release_expired_holds() lo marca como 'expired' y el slot
+  // queda libre nuevamente. La transición a 'confirmed' la hace el webhook
+  // del payment provider (Hito 4).
+  const depositAmount = computeDepositAmount(service);
+  const requiresDeposit = depositAmount > 0;
+  const PAYMENT_HOLD_MS = 10 * 60 * 1000;
+  const expiresAt = requiresDeposit
+    ? new Date(Date.now() + PAYMENT_HOLD_MS).toISOString()
+    : null;
+
   const { data: appointment, error: insErr } = await admin
     .from('appointments')
     .insert({
       shop_id: shop.id,
-      profile_id: user?.id || null,
+      profile_id: user.id,
       barber_id: barberId,
       service_id: data.serviceId,
       customer_name: data.customerName,
@@ -156,7 +207,10 @@ export async function createBooking(input: z.infer<typeof BookingSchema>) {
       customer_email: data.customerEmail,
       starts_at: startsAt.toISOString(),
       ends_at: endsAt.toISOString(),
-      status: 'confirmed'
+      status: requiresDeposit ? 'pending_payment' : 'confirmed',
+      payment_status: requiresDeposit ? 'pending' : 'not_required',
+      payment_amount: requiresDeposit ? depositAmount : null,
+      payment_expires_at: expiresAt
     })
     .select('id')
     .single();
@@ -188,17 +242,19 @@ export async function createBooking(input: z.infer<typeof BookingSchema>) {
   // Si el user ya tiene shop_id (vino de otro shop) no lo pisamos: queda con
   // el primero. Si is_admin = true (es dueño), tampoco — el shop_id del
   // dueño es su panel, no una barbería de cliente.
-  if (user) {
-    const { data: prof } = await admin
-      .from('profiles')
-      .select('is_admin, shop_id')
-      .eq('id', user.id)
-      .maybeSingle<{ is_admin: boolean; shop_id: string | null }>();
-    if (prof && !prof.is_admin && !prof.shop_id) {
-      await admin
-        .from('profiles')
-        .update({ shop_id: shop.id })
-        .eq('id', user.id);
+  // También guardamos el teléfono del profile si todavía no lo tenía (legacy
+  // users registrados antes de que el campo fuera obligatorio).
+  const { data: prof } = await admin
+    .from('profiles')
+    .select('is_admin, shop_id, phone')
+    .eq('id', user.id)
+    .maybeSingle<{ is_admin: boolean; shop_id: string | null; phone: string | null }>();
+  if (prof) {
+    const patch: Record<string, unknown> = {};
+    if (!prof.is_admin && !prof.shop_id) patch.shop_id = shop.id;
+    if (!prof.phone && data.customerPhone) patch.phone = data.customerPhone;
+    if (Object.keys(patch).length > 0) {
+      await admin.from('profiles').update(patch).eq('id', user.id);
     }
   }
 
@@ -213,8 +269,11 @@ export async function createBooking(input: z.infer<typeof BookingSchema>) {
     maxAge: RECENT_BOOKINGS_MAX_AGE
   });
 
-  // Emails transaccionales (best-effort, no bloquean el flujo).
-  try {
+  // Emails transaccionales (best-effort, no bloquean el flujo). Skipeamos
+  // los turnos pending_payment: si la seña nunca se paga, no queremos haber
+  // mandado confirmación. El webhook del provider va a disparar los emails
+  // cuando el pago entre.
+  if (!requiresDeposit) try {
     const [{ data: svcRow }, { data: bbRow }, { data: shopOwner }] = await Promise.all([
       admin.from('services').select('name').eq('id', data.serviceId).maybeSingle<{ name: string }>(),
       admin.from('barbers').select('name').eq('id', barberId).maybeSingle<{ name: string }>(),
@@ -256,27 +315,113 @@ export async function createBooking(input: z.infer<typeof BookingSchema>) {
   redirect(`/${data.shopSlug}/confirmacion/${appointment!.id}`);
 }
 
+/**
+ * Política de cancelación con reembolso parcial.
+ *
+ * - ≥3 hs antes del turno: se reembolsa todo lo pagado MENOS el 20% del
+ *   precio del servicio (la "seña dura" no reembolsable).
+ * - <3 hs antes o no-show: se pierde lo pagado.
+ * - Sin pago (seña no requerida) → cancelación libre, sin reembolso que
+ *   procesar.
+ */
+const CANCEL_WINDOW_HOURS = 3;
+const NON_REFUNDABLE_PCT = 20;
+
 export async function cancelAppointment(id: string) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: 'No autenticado' };
 
-  const { data: appt, error } = await supabase
+  const admin = createAdminClient();
+
+  // Leemos el turno completo antes de cancelarlo: necesitamos saber si lleva
+  // pago, cuánto, y a cuánto del turno faltamos para aplicar la política.
+  const { data: appt } = await admin
     .from('appointments')
-    .update({ status: 'cancelled' })
+    .select('id, shop_id, profile_id, status, starts_at, payment_status, payment_amount, payment_external_id, payment_provider, service_id, services(price)')
     .eq('id', id)
     .eq('profile_id', user.id)
-    .select('shop_id')
-    .maybeSingle<{ shop_id: string }>();
-  if (error) return { error: error.message };
-
-  if (appt?.shop_id) {
-    const admin = createAdminClient();
-    const { data: shop } = await admin
-      .from('shops').select('slug').eq('id', appt.shop_id).maybeSingle<{ slug: string }>();
-    if (shop?.slug) revalidatePath(`/${shop.slug}/mis-turnos`);
+    .maybeSingle<{
+      id: string;
+      shop_id: string;
+      profile_id: string;
+      status: string;
+      starts_at: string;
+      payment_status: string;
+      payment_amount: number | null;
+      payment_external_id: string | null;
+      payment_provider: string | null;
+      service_id: string;
+      services: { price: number } | null;
+    }>();
+  if (!appt) return { error: 'Turno no encontrado' };
+  if (appt.status === 'cancelled' || appt.status === 'expired') {
+    return { error: 'Ese turno ya está cancelado.' };
   }
-  return { ok: true };
+
+  // Calcular cuánto reembolsar.
+  const startsAtMs = new Date(appt.starts_at).getTime();
+  const nowMs = Date.now();
+  const hoursToStart = (startsAtMs - nowMs) / (60 * 60 * 1000);
+  const inWindow = hoursToStart >= CANCEL_WINDOW_HOURS;
+
+  let refundAmount = 0;
+  let newPaymentStatus = appt.payment_status;
+  let refundError: string | null = null;
+
+  if (appt.payment_status === 'paid' && Number(appt.payment_amount || 0) > 0) {
+    if (inWindow) {
+      const paid = Number(appt.payment_amount);
+      const servicePrice = Number(appt.services?.price || 0);
+      const nonRefundable = Math.round(servicePrice * NON_REFUNDABLE_PCT) / 100;
+      refundAmount = Math.max(0, paid - nonRefundable);
+      // Si el refund es exactamente el monto pagado, payment_status='refunded';
+      // si es parcial, 'partial_refund'; si es 0, sigue 'paid' pero el turno
+      // queda cancelado igual.
+      if (refundAmount > 0 && appt.payment_provider === 'mercadopago' && appt.payment_external_id) {
+        try {
+          const { data: settings } = await admin
+            .from('shop_payment_settings')
+            .select('mp_access_token, is_active')
+            .eq('shop_id', appt.shop_id)
+            .maybeSingle<{ mp_access_token: string | null; is_active: boolean }>();
+          if (settings?.is_active && settings.mp_access_token) {
+            const { refundMpPayment } = await import('@/lib/mercadopago');
+            await refundMpPayment(settings.mp_access_token, appt.payment_external_id, refundAmount);
+            newPaymentStatus = refundAmount >= paid ? 'refunded' : 'partial_refund';
+          } else {
+            refundError = 'No pudimos procesar el reembolso automáticamente. El dueño te va a contactar.';
+          }
+        } catch (e) {
+          console.error('[cancelAppointment] MP refund failed:', e);
+          refundError = 'No pudimos procesar el reembolso automáticamente. El dueño te va a contactar.';
+        }
+      } else if (refundAmount === 0) {
+        // El reembolso da 0 (pagó exactamente la seña dura) → no llamamos a MP
+        // pero igual marcamos como partial_refund para que quede el rastro de
+        // que se aplicó la política.
+        newPaymentStatus = 'partial_refund';
+      }
+    }
+    // Fuera de ventana: se pierde lo pagado → payment_status sigue 'paid'.
+  }
+
+  const { error: updErr } = await admin
+    .from('appointments')
+    .update({ status: 'cancelled', payment_status: newPaymentStatus })
+    .eq('id', id);
+  if (updErr) return { error: updErr.message };
+
+  const { data: shop } = await admin
+    .from('shops').select('slug').eq('id', appt.shop_id).maybeSingle<{ slug: string }>();
+  if (shop?.slug) revalidatePath(`/${shop.slug}/mis-turnos`);
+
+  return {
+    ok: true,
+    refundAmount,
+    inWindow,
+    refundError
+  };
 }
 
 const MoveSchema = z.object({

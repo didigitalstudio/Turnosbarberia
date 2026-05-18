@@ -2,17 +2,26 @@ import { redirect } from 'next/navigation';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { LoginForm } from '@/components/client/LoginForm';
 import { MobileShell } from '@/components/shared/MobileShell';
+import { sanitizeNext } from '@/lib/safe-next';
 
 export const dynamic = 'force-dynamic';
 
 // Si el user entra a /login ya logueado, lo llevamos directo a donde
 // corresponde según rol: dueño → panel u onboarding, cliente → su barbería
-// si la tiene atada, o landing como fallback.
-export default async function LoginPage() {
+// si la tiene atada, o landing como fallback. Si vino con `?next=` (ej:
+// desde /[slug]/reservar) y el path es seguro, prevalece sobre el default.
+export default async function LoginPage({
+  searchParams
+}: {
+  searchParams: { next?: string; shop?: string };
+}) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
   if (user) {
+    const next = sanitizeNext(searchParams.next);
+    if (next) redirect(next);
+
     const { data: profile } = await supabase
       .from('profiles')
       .select('is_admin, shop_id')

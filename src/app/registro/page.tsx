@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { RegisterForm } from '@/components/client/RegisterForm';
 import { MobileShell } from '@/components/shared/MobileShell';
+import { sanitizeNext } from '@/lib/safe-next';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,12 +13,17 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,40}[a-z0-9]$/;
 export default async function RegistroPage({
   searchParams
 }: {
-  searchParams: { role?: string; shop?: string };
+  searchParams: { role?: string; shop?: string; next?: string };
 }) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
   if (user) {
+    // Si vino con `?next=` válido (ej: redirigido a registro a mitad de un
+    // booking), respetamos ese destino aunque el user ya esté logueado.
+    const nextSafe = sanitizeNext(searchParams.next);
+    if (nextSafe) redirect(nextSafe);
+
     const { data: profile } = await supabase
       .from('profiles')
       .select('is_admin, shop_id')

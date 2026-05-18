@@ -12,13 +12,26 @@ import type { Service, Barber } from '@/types/db';
 
 type Slot = { time: string; iso: string; taken: boolean };
 
+/** Monto a cobrar de seña según la config del servicio. 0 si no exige. */
+function depositOf(s: Service): number {
+  const price = Number(s.price) || 0;
+  const amount = Number(s.deposit_amount) || 0;
+  switch (s.deposit_type) {
+    case 'percent': return Math.round(price * amount) / 100;
+    case 'fixed':   return Math.min(price, amount);
+    case 'full':    return price;
+    default:        return 0;
+  }
+}
+
 export function BookingFlow({
   shopSlug, services, barbers, preselectedService, preselectedBarber, profile, workingDays, rescheduleFromId
 }: {
   shopSlug: string;
   services: Service[]; barbers: Barber[];
   preselectedService?: string; preselectedBarber?: string;
-  profile: { name: string; email: string | null; phone: string | null } | null;
+  // Profile siempre presente: el page server-side redirige a /login si no hay sesión.
+  profile: { name: string; email: string | null; phone: string | null };
   /** Días de la semana en los que al menos un barbero trabaja (0=Dom..6=Sab). Si no se pasa, se asumen todos abiertos. */
   workingDays?: number[];
   /** Si se pasa, después de confirmar el nuevo turno se cancela el viejo (reprogramación). */
@@ -32,9 +45,13 @@ export function BookingFlow({
   const [dateISO,   setDateISO]   = useState<string | null>(null);
   const [slotISO,   setSlotISO]   = useState<string | null>(null);
 
-  const [name,  setName]  = useState(profile?.name  || '');
-  const [email, setEmail] = useState(profile?.email || '');
-  const [phone, setPhone] = useState(profile?.phone || '');
+  // Nombre y email vienen del profile y son read-only en este flow.
+  // El teléfono lo permitimos editar solo si el profile no lo tiene cargado
+  // (legacy: usuarios registrados antes de que el campo fuera obligatorio).
+  const name  = profile.name;
+  const email = profile.email || '';
+  const [phone, setPhone] = useState(profile.phone || '');
+  const phoneFromProfile = Boolean(profile.phone);
 
   const [slots, setSlots] = useState<Slot[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
@@ -75,6 +92,8 @@ export function BookingFlow({
   }, [barberId, serviceId, dateISO, shopSlug]);
 
   const total = service ? Number(service.price) : 0;
+  const depositNow = service ? depositOf(service) : 0;
+  const requiresDeposit = depositNow > 0;
   const stepAnimClass = step > prevStep ? 'step-enter' : step < prevStep ? 'step-enter-back' : '';
 
   return (
@@ -113,6 +132,7 @@ export function BookingFlow({
               {services.map(s => {
                 const sel = s.id === serviceId;
                 const pulse = confirmingSvc === s.id;
+                const depAmount = depositOf(s);
                 return (
                   <button key={s.id} type="button"
                     disabled={!!confirmingSvc}
@@ -134,7 +154,12 @@ export function BookingFlow({
                       </div>
                       <div>
                         <div className="text-[15px] font-medium">{s.name}</div>
-                        <div className={`text-[11px] mt-0.5 ${sel || pulse ? 'text-dark-muted' : 'text-muted'}`}>{s.duration_mins} min</div>
+                        <div className={`text-[11px] mt-0.5 ${sel || pulse ? 'text-dark-muted' : 'text-muted'}`}>
+                          {s.duration_mins} min
+                          {depAmount > 0 && (
+                            <span className={sel || pulse ? 'text-accent' : 'text-accent'}> · Seña {money(depAmount)}</span>
+                          )}
+                        </div>
                       </div>
                     </div>
                     <div className="font-mono text-[14px] font-medium">{money(Number(s.price))}</div>
@@ -273,48 +298,48 @@ export function BookingFlow({
                 weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit', hour12:false,
                 timeZone:'America/Argentina/Buenos_Aires'
               }).replace('.', '') : ''}/>
+              <Row label="Total" value={money(total)}/>
+              {requiresDeposit && (
+                <Row label="Seña al reservar" value={money(depositNow)}/>
+              )}
             </div>
 
-            <SectionLabel className="mt-5">TUS DATOS</SectionLabel>
-            <div className="flex flex-col gap-2">
-              <label className="bg-card border border-line rounded-xl px-4 py-2.5 block focus-within:border-ink/50 transition">
-                <span className="block text-[10px] text-muted uppercase tracking-[1.5px] mb-0.5">Nombre</span>
-                <input
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                  placeholder="Joaquín Méndez"
-                  autoComplete="name"
-                  enterKeyHint="next"
-                  className="bg-transparent text-ink w-full outline-none"
-                />
-              </label>
-              <label className="bg-card border border-line rounded-xl px-4 py-2.5 block focus-within:border-ink/50 transition">
-                <span className="block text-[10px] text-muted uppercase tracking-[1.5px] mb-0.5">Email</span>
-                <input
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  placeholder="vos@email.com"
-                  type="email"
-                  autoComplete="email"
-                  inputMode="email"
-                  enterKeyHint="next"
-                  className="bg-transparent text-ink w-full outline-none font-mono"
-                />
-              </label>
-              <label className="bg-card border border-line rounded-xl px-4 py-2.5 block focus-within:border-ink/50 transition">
-                <span className="block text-[10px] text-muted uppercase tracking-[1.5px] mb-0.5">Teléfono</span>
-                <input
-                  value={phone}
-                  onChange={e => setPhone(e.target.value)}
-                  placeholder="+54 9 11 5823 4412"
-                  type="tel"
-                  autoComplete="tel"
-                  inputMode="tel"
-                  enterKeyHint="done"
-                  className="bg-transparent text-ink w-full outline-none font-mono"
-                />
-              </label>
+            {requiresDeposit && (
+              <div className="mt-3 bg-accent/10 border border-accent/30 rounded-xl p-3.5 text-[12px] text-ink leading-relaxed">
+                <div className="font-semibold mb-1 text-[13px]">Confirmás con una seña de {money(depositNow)}</div>
+                <div className="text-muted">
+                  Te vamos a redirigir a Mercado Pago. El turno se reserva por 10 min mientras completás el pago.
+                  Si cancelás con menos de 3 hs de anticipación, perdés la seña.
+                </div>
+              </div>
+            )}
+
+            <SectionLabel className="mt-5">RESERVANDO COMO</SectionLabel>
+            <div className="bg-card border border-line rounded-xl px-4 py-3 flex flex-col gap-1">
+              <div className="text-[14px] font-medium">{name}</div>
+              {email && <div className="text-[12px] text-muted font-mono">{email}</div>}
+              {phoneFromProfile && <div className="text-[12px] text-muted font-mono">{phone}</div>}
             </div>
+
+            {!phoneFromProfile && (
+              <>
+                <SectionLabel className="mt-5">TELÉFONO DE CONTACTO</SectionLabel>
+                <label className="bg-card border border-line rounded-xl px-4 py-2.5 block focus-within:border-ink/50 transition">
+                  <span className="block text-[10px] text-muted uppercase tracking-[1.5px] mb-0.5">Teléfono</span>
+                  <input
+                    value={phone}
+                    onChange={e => setPhone(e.target.value)}
+                    placeholder="+54 9 11 5823 4412"
+                    type="tel"
+                    autoComplete="tel"
+                    inputMode="tel"
+                    enterKeyHint="done"
+                    required
+                    className="bg-transparent text-ink w-full outline-none font-mono"
+                  />
+                </label>
+              </>
+            )}
 
             {error && (
               <div className="mt-3">

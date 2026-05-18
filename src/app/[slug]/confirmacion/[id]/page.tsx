@@ -6,6 +6,7 @@ import { getShopBySlug } from '@/lib/shop-context';
 import { Icon } from '@/components/shared/Icon';
 import { Stripe } from '@/components/shared/Stripe';
 import { ConfirmationActions } from '@/components/client/ConfirmationActions';
+import { PayDepositButton } from '@/components/client/PayDepositButton';
 import { money } from '@/lib/format';
 import { RECENT_BOOKINGS_COOKIE } from '@/lib/booking-cookie';
 
@@ -24,7 +25,7 @@ export default async function ConfirmationPage({ params }: { params: { slug: str
   const { data: { user } } = await userClient.auth.getUser();
 
   let appt: any = null;
-  const baseSelect = 'id, starts_at, ends_at, customer_name, services(name, duration_mins, price), barbers(name)';
+  const baseSelect = 'id, starts_at, ends_at, customer_name, status, payment_status, payment_amount, payment_expires_at, services(name, duration_mins, price), barbers(name)';
 
   // Trip 1: via RLS (user logueado)
   const { data: viaRls } = await userClient
@@ -53,6 +54,7 @@ export default async function ConfirmationPage({ params }: { params: { slug: str
 
   if (!appt) return notFound();
   const a = appt as any;
+  const isPendingPayment = a.status === 'pending_payment' && a.payment_status === 'pending';
 
   const start = new Date(a.starts_at);
   const end = new Date(a.ends_at || new Date(start.getTime() + (a.services?.duration_mins || 30) * 60_000).toISOString());
@@ -74,16 +76,40 @@ export default async function ConfirmationPage({ params }: { params: { slug: str
 
       <div className="text-center mt-7">
         <div
-          className="pop-in w-[72px] h-[72px] rounded-full bg-ink mx-auto grid place-items-center"
+          className={`pop-in w-[72px] h-[72px] rounded-full mx-auto grid place-items-center ${isPendingPayment ? 'bg-accent/15 border-2 border-accent' : 'bg-ink'}`}
           aria-hidden="true"
         >
-          <Icon name="check" size={32} stroke={2.4} color="#B6754C" />
+          <Icon
+            name={isPendingPayment ? 'clock' : 'check'}
+            size={32}
+            stroke={2.4}
+            color={isPendingPayment ? '#B6754C' : '#B6754C'}
+          />
         </div>
-        <h1 className="fade-in-up font-display text-[34px] leading-tight mt-5 -tracking-[0.5px]">Turno confirmado</h1>
-        <p className="fade-in-up text-[13px] text-muted mt-2 max-w-[280px] mx-auto" style={{ animationDelay: '60ms' }}>
-          Guardá este ticket. Cancelación gratuita hasta 2 hs antes.
+        <h1 className="fade-in-up font-display text-[34px] leading-tight mt-5 -tracking-[0.5px]">
+          {isPendingPayment ? 'Reservá pagando la seña' : 'Turno confirmado'}
+        </h1>
+        <p className="fade-in-up text-[13px] text-muted mt-2 max-w-[290px] mx-auto" style={{ animationDelay: '60ms' }}>
+          {isPendingPayment
+            ? `Tu turno queda reservado por 10 min mientras completás el pago de la seña (${money(Number(a.payment_amount || 0))}).`
+            : 'Guardá este ticket. Cancelación gratuita hasta 2 hs antes.'}
         </p>
       </div>
+
+      {isPendingPayment && (
+        <div className="mt-5 bg-accent/10 border border-accent/30 rounded-xl px-4 py-3.5 text-[13px] text-ink">
+          <div className="font-semibold mb-1">Pago pendiente</div>
+          <div className="text-muted text-[12px] leading-relaxed">
+            Tocá el botón de abajo para pagar la seña vía Mercado Pago. Si no completás el pago en 10 min,
+            el turno se libera automáticamente.
+          </div>
+          <PayDepositButton
+            shopSlug={params.slug}
+            appointmentId={a.id}
+            amount={Number(a.payment_amount || 0)}
+          />
+        </div>
+      )}
 
       <article
         className="fade-in-up mt-6 bg-card rounded-2xl border border-line overflow-hidden shadow-card"

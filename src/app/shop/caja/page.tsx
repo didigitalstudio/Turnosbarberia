@@ -50,11 +50,11 @@ export default async function ShopCashPage({
       .order('paid_at', { ascending: false }),
     supabase
       .from('appointments')
-      .select('id, customer_name, starts_at, status, services(name, price), barbers(name)')
+      .select('id, customer_name, starts_at, status, payment_status, payment_amount, services(name, price), barbers(name)')
       .eq('shop_id', shop.id)
       .gte('starts_at', startISO)
       .lt('starts_at', endISO)
-      .neq('status', 'cancelled')
+      .not('status', 'in', '("cancelled","expired","pending_payment")')
       .order('starts_at')
   ]);
 
@@ -70,15 +70,24 @@ export default async function ShopCashPage({
     chargedSet = new Set(((charged as any[]) || []).map(s => s.appointment_id).filter(Boolean));
   }
 
-  const todayAppointments = ((appts as any[]) || []).map(a => ({
-    id: a.id,
-    customer_name: a.customer_name,
-    starts_at: a.starts_at,
-    service_name: a.services?.name || null,
-    service_price: Number(a.services?.price || 0),
-    barber_name: a.barbers?.name || null,
-    already_charged: chargedSet.has(a.id)
-  }));
+  const todayAppointments = ((appts as any[]) || []).map(a => {
+    const fullPrice = Number(a.services?.price || 0);
+    const deposit = a.payment_status === 'paid' ? Number(a.payment_amount || 0) : 0;
+    return {
+      id: a.id,
+      customer_name: a.customer_name,
+      starts_at: a.starts_at,
+      service_name: a.services?.name || null,
+      service_price: fullPrice,
+      // Saldo a cobrar el día del turno = precio total menos seña ya cobrada
+      // vía Mercado Pago. Si el cliente todavía no pagó (raro: ya filtramos
+      // pending_payment), o si no había seña, saldo == precio total.
+      deposit_paid: deposit,
+      balance_due: Math.max(0, fullPrice - deposit),
+      barber_name: a.barbers?.name || null,
+      already_charged: chargedSet.has(a.id)
+    };
+  });
 
   return (
     <main className="flex-1 flex flex-col mx-auto w-full max-w-[440px] md:max-w-none md:mx-0">

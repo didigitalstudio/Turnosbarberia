@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { LAST_SHOP_COOKIE } from '@/lib/shop-context';
+import { sanitizeNext } from '@/lib/safe-next';
 
 const RESERVED_SLUGS = new Set([
   'api', 'auth', 'shop', 'login', 'registro', 'cuenta',
@@ -52,6 +53,7 @@ export async function sendMagicLink(formData: FormData) {
   const email = String(formData.get('email') || '').trim();
   const name  = String(formData.get('name')  || '').trim();
   const phone = String(formData.get('phone') || '').trim();
+  const next  = sanitizeNext(String(formData.get('next') || '') || null);
 
   if (!email || !email.includes('@')) {
     return { error: 'Ingresá un email válido' };
@@ -62,10 +64,13 @@ export async function sendMagicLink(formData: FormData) {
 
   const supabase = createClient();
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+  const callback = next
+    ? `${siteUrl}/auth/callback?next=${encodeURIComponent(next)}`
+    : `${siteUrl}/auth/callback`;
   const { error } = await supabase.auth.signInWithOtp({
     email,
     options: {
-      emailRedirectTo: `${siteUrl}/auth/callback`,
+      emailRedirectTo: callback,
       data: { name, phone }
     }
   });
@@ -105,6 +110,7 @@ export async function signupOwner(formData: FormData) {
 export async function signInWithPassword(formData: FormData) {
   const email = String(formData.get('email') || '').trim().toLowerCase();
   const password = String(formData.get('password') || '');
+  const next = sanitizeNext(String(formData.get('next') || '') || null);
 
   if (!email || !email.includes('@')) {
     return { error: 'Ingresá un email válido' };
@@ -119,19 +125,26 @@ export async function signInWithPassword(formData: FormData) {
     // Mensaje genérico para no filtrar si el email existe o no.
     return { error: 'Email o contraseña inválidos' };
   }
-  const dest = await destinationForCurrentUser(supabase);
+  // Si vino con `?next=` (ej: desde /[slug]/reservar), respetar ese destino.
+  // Si no, decidir según rol del user.
+  const dest = next ?? await destinationForCurrentUser(supabase);
   return { ok: true, dest };
 }
+
+const PHONE_RE = /^[+\d\s()-]{6,30}$/;
 
 export async function signupClient(formData: FormData) {
   const email = String(formData.get('email') || '').trim().toLowerCase();
   const name  = String(formData.get('name')  || '').trim();
+  const phone = String(formData.get('phone') || '').trim();
   const password = String(formData.get('password') || '');
   const shopSlugRaw = String(formData.get('shopSlug') || '').trim();
   const shopSlug = safeShopSlug(shopSlugRaw) || null;
+  const next = sanitizeNext(String(formData.get('next') || '') || null);
 
   if (name.length < 2) return { error: 'Ingresá tu nombre completo' };
   if (!email || !email.includes('@')) return { error: 'Ingresá un email válido' };
+  if (!phone || !PHONE_RE.test(phone)) return { error: 'Ingresá un teléfono válido' };
   if (password.length < 8) return { error: 'La contraseña tiene que tener al menos 8 caracteres' };
 
   const admin = createAdminClient();
@@ -201,7 +214,7 @@ export async function signupClient(formData: FormData) {
     }
   }
 
-  // Profile: aseguramos el nombre/email + shop_id si lo tenemos.
+  // Profile: aseguramos el nombre/email/phone + shop_id si lo tenemos.
   await admin
     .from('profiles')
     .upsert(
@@ -209,6 +222,7 @@ export async function signupClient(formData: FormData) {
         id: userId,
         name,
         email,
+        phone,
         is_admin: false,
         shop_id: targetShopId
       },
@@ -223,8 +237,9 @@ export async function signupClient(formData: FormData) {
     return { ok: true, dest: '/login?registered=1' };
   }
 
-  // Destino final: barbería si conseguimos atar una, landing si no.
-  const dest = targetShopSlug ? `/${targetShopSlug}` : '/';
+  // Destino final: si vino con ?next= (ej: registro a mitad de un booking),
+  // respetar ese destino; si no, barbería atada o landing.
+  const dest = next ?? (targetShopSlug ? `/${targetShopSlug}` : '/');
   return { ok: true, dest };
 }
 

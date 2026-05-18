@@ -29,7 +29,7 @@ export default async function ShopHomePage({ params }: { params: { slug: string 
           .select('id, starts_at, ends_at, customer_name, services(name, duration_mins, price), barbers(name, initials, hue)')
           .eq('shop_id', shop.id)
           .eq('profile_id', user.id)
-          .neq('status', 'cancelled')
+          .not('status', 'in', '("cancelled","expired")')
           .gte('starts_at', new Date().toISOString())
           .order('starts_at')
           .limit(1)

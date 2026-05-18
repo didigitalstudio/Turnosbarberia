@@ -27,7 +27,7 @@ export default async function ShopAgendaPage({ searchParams }: { searchParams: {
 
   // Query principal: siempre cargamos el día actual (para stats). Si es vista semana,
   // además cargamos la semana entera.
-  const apptSelect = 'id, starts_at, ends_at, customer_name, status, services(name, duration_mins, price), barbers(id, name, initials, hue)';
+  const apptSelect = 'id, starts_at, ends_at, customer_name, status, payment_status, payment_amount, services(name, duration_mins, price), barbers(id, name, initials, hue)';
 
   const queries: any[] = [
     supabase
@@ -36,7 +36,7 @@ export default async function ShopAgendaPage({ searchParams }: { searchParams: {
       .eq('shop_id', shop.id)
       .gte('starts_at', dayStart.toISOString())
       .lt('starts_at', dayEnd.toISOString())
-      .neq('status', 'cancelled')
+      .not('status', 'in', '("cancelled","expired","pending_payment")')
       .order('starts_at'),
     supabase.from('barbers').select('*').eq('shop_id', shop.id).eq('is_active', true),
     supabase.from('schedules').select('day_of_week, start_time, end_time, is_working').eq('shop_id', shop.id),
@@ -58,7 +58,7 @@ export default async function ShopAgendaPage({ searchParams }: { searchParams: {
         .eq('shop_id', shop.id)
         .gte('starts_at', weekStartDate.toISOString())
         .lt('starts_at', weekEndDate.toISOString())
-        .neq('status', 'cancelled')
+        .not('status', 'in', '("cancelled","expired","pending_payment")')
         .order('starts_at')
     );
   }

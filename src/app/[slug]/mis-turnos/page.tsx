@@ -18,10 +18,10 @@ export default async function MisTurnosPage({ params }: { params: { slug: string
   const [{ data: upcoming }, { data: history }] = await Promise.all([
     supabase
       .from('appointments')
-      .select('id, starts_at, status, service_id, services(name, duration_mins, price), barbers(name)')
+      .select('id, starts_at, status, payment_status, payment_amount, payment_expires_at, service_id, services(name, duration_mins, price), barbers(name)')
       .eq('shop_id', shop.id)
       .eq('profile_id', user.id)
-      .neq('status', 'cancelled')
+      .not('status', 'in', '("cancelled","expired")')
       .gte('starts_at', nowISO)
       .order('starts_at'),
     supabase

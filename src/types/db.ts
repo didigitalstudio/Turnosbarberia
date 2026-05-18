@@ -1,7 +1,23 @@
-export type AppointmentStatus = 'pending' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled' | 'no_show';
+export type AppointmentStatus =
+  | 'pending'
+  | 'pending_payment'
+  | 'confirmed'
+  | 'in_progress'
+  | 'completed'
+  | 'cancelled'
+  | 'no_show'
+  | 'expired';
 export type SaleType = 'service' | 'product' | 'other';
 export type PaymentMethod = 'efectivo' | 'transferencia' | 'debito' | 'credito';
 export type ShopPlan = 'starter' | 'pro';
+export type DepositType = 'none' | 'percent' | 'fixed' | 'full';
+export type PaymentStatus =
+  | 'not_required'
+  | 'pending'
+  | 'paid'
+  | 'refunded'
+  | 'partial_refund'
+  | 'expired';
 
 export type Shop = {
   id: string;
@@ -24,6 +40,10 @@ export type Service = {
   duration_mins: number;
   price: number;
   is_active: boolean;
+  // Cobro anticipado (seña): 'none' = sin seña, 'percent' = % del precio,
+  // 'fixed' = monto fijo en pesos, 'full' = 100% del precio.
+  deposit_type: DepositType;
+  deposit_amount: number;
   created_at: string;
 };
 
@@ -75,6 +95,12 @@ export type Appointment = {
   ends_at: string;
   status: AppointmentStatus;
   notes: string | null;
+  // Pagos (cobro anticipado): si la seña fue requerida y a qué nivel del flow va.
+  payment_status: PaymentStatus;
+  payment_provider: string | null;
+  payment_external_id: string | null;
+  payment_amount: number | null;
+  payment_expires_at: string | null;
   created_at: string;
   updated_at: string;
 };

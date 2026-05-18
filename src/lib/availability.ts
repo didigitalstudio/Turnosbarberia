@@ -21,6 +21,11 @@ export async function getAvailableSlots(shopId: string, barberId: string, servic
   const dayStartUTC = new Date(`${dateISO}T00:00:00${SHOP_OFFSET}`).toISOString();
   const dayEndUTC = new Date(`${dateISO}T24:00:00${SHOP_OFFSET}`).toISOString();
 
+  // Antes de leer disponibilidad, liberamos los holds (pending_payment) cuya
+  // ventana expiró. Lazy cleanup: evita mostrar como ocupados slots cuyo
+  // cliente nunca pagó la seña.
+  await supabase.rpc('release_expired_holds').then(() => null, () => null);
+
   const [{ data: service }, { data: schedule }, { data: appts }] = await Promise.all([
     supabase.from('services').select('duration_mins').eq('id', serviceId).eq('shop_id', shopId).single(),
     supabase.from('schedules').select('*')
@@ -34,7 +39,7 @@ export async function getAvailableSlots(shopId: string, barberId: string, servic
       .eq('barber_id', barberId)
       .gte('starts_at', dayStartUTC)
       .lt('starts_at', dayEndUTC)
-      .neq('status', 'cancelled')
+      .not('status', 'in', '("cancelled","no_show","expired")')
   ]);
 
   if (!service || !schedule || !schedule.is_working) return [];

@@ -10,10 +10,18 @@ import {
   updateSchedules,
   addShop, switchShop
 } from '@/app/actions/ajustes';
+import { upsertShopPaymentSettings } from '@/app/actions/payments';
 import { slugify } from '@/lib/slug';
 import type { Shop, Service, Barber, Schedule } from '@/types/db';
 
-type Tab = 'shop' | 'services' | 'team' | 'hours' | 'sedes';
+type Tab = 'shop' | 'services' | 'team' | 'hours' | 'sedes' | 'pagos';
+
+export type ShopPaymentSettings = {
+  mp_access_token: string | null;
+  mp_public_key: string | null;
+  mp_webhook_secret: string | null;
+  is_active: boolean;
+};
 
 const DAYS = [
   { idx: 1, short: 'Lun', long: 'Lunes' },
@@ -26,7 +34,7 @@ const DAYS = [
 ];
 
 export function AjustesView({
-  shop, services, barbers, schedules, publicUrl, userShops
+  shop, services, barbers, schedules, publicUrl, userShops, paymentSettings
 }: {
   shop: Shop;
   services: Service[];
@@ -34,6 +42,7 @@ export function AjustesView({
   schedules: Schedule[];
   publicUrl: string;
   userShops: Shop[];
+  paymentSettings: ShopPaymentSettings | null;
 }) {
   const [tab, setTab] = useState<Tab>('shop');
   const [toast, setToast] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
@@ -51,7 +60,7 @@ export function AjustesView({
 
       {/* Tabs */}
       <div className="mt-5 flex gap-1 bg-dark-card border border-dark-line rounded-xl p-1 w-full md:max-w-2xl overflow-x-auto no-scrollbar">
-        {(['shop', 'services', 'team', 'hours', 'sedes'] as Tab[]).map(t => (
+        {(['shop', 'services', 'team', 'hours', 'sedes', 'pagos'] as Tab[]).map(t => (
           <button
             key={t}
             type="button"
@@ -69,6 +78,7 @@ export function AjustesView({
         {tab === 'team' && <TeamSection barbers={barbers} onToast={setToast} />}
         {tab === 'hours' && <HoursSection barbers={barbers} schedules={schedules} onToast={setToast} />}
         {tab === 'sedes' && <SedesSection shop={shop} userShops={userShops} onToast={setToast} />}
+        {tab === 'pagos' && <PagosSection settings={paymentSettings} onToast={setToast} />}
       </div>
     </div>
   );
@@ -79,7 +89,8 @@ function tabLabel(t: Tab) {
     : t === 'services' ? 'Servicios'
     : t === 'team' ? 'Equipo'
     : t === 'hours' ? 'Horarios'
-    : 'Sedes';
+    : t === 'sedes' ? 'Sedes'
+    : 'Pagos';
 }
 
 // ─── Public link banner ──────────────────────────────────────────────────────
@@ -173,9 +184,19 @@ function ShopSection({ shop, onToast }: { shop: Shop; onToast: (t: { tone: 'succ
 
 // ─── Services section ────────────────────────────────────────────────────────
 
+type ServiceDraft = {
+  id?: string;
+  name: string;
+  duration: number;
+  price: number;
+  description: string;
+  depositType: 'none' | 'percent' | 'fixed' | 'full';
+  depositAmount: number;
+};
+
 function ServicesSection({ services, onToast }: { services: Service[]; onToast: (t: { tone: 'success' | 'error'; text: string }) => void }) {
   const [pending, start] = useTransition();
-  const [draft, setDraft] = useState<{ id?: string; name: string; duration: number; price: number; description: string } | null>(null);
+  const [draft, setDraft] = useState<ServiceDraft | null>(null);
 
   const save = () => {
     if (!draft) return;
@@ -185,11 +206,20 @@ function ServicesSection({ services, onToast }: { services: Service[]; onToast: 
         name: draft.name,
         duration_mins: draft.duration,
         price: draft.price,
-        description: draft.description
+        description: draft.description,
+        deposit_type: draft.depositType,
+        deposit_amount: draft.depositAmount
       });
       if (r?.error) onToast({ tone: 'error', text: r.error });
       else { onToast({ tone: 'success', text: draft.id ? 'Servicio actualizado' : 'Servicio agregado' }); setDraft(null); }
     });
+  };
+
+  const formatDepositLabel = (s: Service): string | null => {
+    if (s.deposit_type === 'none') return null;
+    if (s.deposit_type === 'full') return 'Pago anticipado · 100%';
+    if (s.deposit_type === 'percent') return `Seña · ${s.deposit_amount}%`;
+    return `Seña · ${money(Number(s.deposit_amount))}`;
   };
 
   const toggle = (s: Service) => start(async () => {
@@ -205,28 +235,44 @@ function ServicesSection({ services, onToast }: { services: Service[]; onToast: 
           Todavía no tenés servicios.
         </div>
       )}
-      {services.map(s => (
-        <div key={s.id} className={`bg-dark-card border border-dark-line rounded-xl px-4 py-3 flex items-center gap-3 ${!s.is_active ? 'opacity-60' : ''}`}>
-          <div className="flex-1 min-w-0">
-            <div className="text-[14px] font-semibold text-bg truncate">{s.name}</div>
-            <div className="text-[11px] text-dark-muted mt-0.5 font-mono">
-              {s.duration_mins} min · {money(Number(s.price))}
+      {services.map(s => {
+        const depositLabel = formatDepositLabel(s);
+        return (
+          <div key={s.id} className={`bg-dark-card border border-dark-line rounded-xl px-4 py-3 flex items-center gap-3 ${!s.is_active ? 'opacity-60' : ''}`}>
+            <div className="flex-1 min-w-0">
+              <div className="text-[14px] font-semibold text-bg truncate">{s.name}</div>
+              <div className="text-[11px] text-dark-muted mt-0.5 font-mono">
+                {s.duration_mins} min · {money(Number(s.price))}
+              </div>
+              {depositLabel && (
+                <div className="text-[10px] text-accent mt-1 font-mono uppercase tracking-[1px]">
+                  {depositLabel}
+                </div>
+              )}
             </div>
+            <button type="button" onClick={() => setDraft({
+              id: s.id,
+              name: s.name,
+              duration: s.duration_mins,
+              price: Number(s.price),
+              description: s.description || '',
+              depositType: (s.deposit_type || 'none') as ServiceDraft['depositType'],
+              depositAmount: Number(s.deposit_amount || 0)
+            })}
+              className="text-[11px] px-2.5 py-1.5 rounded-xs border border-dark-line text-bg hover:border-bg/30 transition">
+              Editar
+            </button>
+            <button type="button" onClick={() => toggle(s)} disabled={pending}
+              className="text-[11px] px-2.5 py-1.5 rounded-xs border border-dark-line text-bg hover:border-bg/30 transition">
+              {s.is_active ? 'Pausar' : 'Activar'}
+            </button>
           </div>
-          <button type="button" onClick={() => setDraft({ id: s.id, name: s.name, duration: s.duration_mins, price: Number(s.price), description: s.description || '' })}
-            className="text-[11px] px-2.5 py-1.5 rounded-xs border border-dark-line text-bg hover:border-bg/30 transition">
-            Editar
-          </button>
-          <button type="button" onClick={() => toggle(s)} disabled={pending}
-            className="text-[11px] px-2.5 py-1.5 rounded-xs border border-dark-line text-bg hover:border-bg/30 transition">
-            {s.is_active ? 'Pausar' : 'Activar'}
-          </button>
-        </div>
-      ))}
+        );
+      })}
 
       {!draft && (
         <button type="button"
-          onClick={() => setDraft({ name: '', duration: 30, price: 0, description: '' })}
+          onClick={() => setDraft({ name: '', duration: 30, price: 0, description: '', depositType: 'none', depositAmount: 0 })}
           className="mt-1 rounded-xl border border-dashed border-dark-line px-4 py-3 text-[13px] text-dark-muted flex items-center justify-center gap-2 hover:border-bg/30 hover:text-bg transition">
           <Icon name="plus" size={16} /> Agregar servicio
         </button>
@@ -257,6 +303,52 @@ function ServicesSection({ services, onToast }: { services: Service[]; onToast: 
             <input value={draft.description} onChange={e => setDraft({ ...draft, description: e.target.value })}
               className="bg-transparent text-bg w-full outline-none text-[14px]" />
           </Field>
+
+          {/* Configuración de seña / cobro anticipado */}
+          <div className="mt-2 border-t border-dark-line pt-3">
+            <div className="font-mono text-[10px] tracking-[2px] text-dark-muted mb-2">COBRO ANTICIPADO</div>
+            <div className="flex flex-wrap gap-1.5">
+              {([
+                { v: 'none', label: 'Sin seña' },
+                { v: 'percent', label: '% del precio' },
+                { v: 'fixed', label: 'Monto fijo' },
+                { v: 'full', label: 'Pago total' }
+              ] as Array<{ v: ServiceDraft['depositType']; label: string }>).map(opt => {
+                const sel = draft.depositType === opt.v;
+                return (
+                  <button
+                    key={opt.v}
+                    type="button"
+                    onClick={() => setDraft({ ...draft, depositType: opt.v, depositAmount: opt.v === 'none' || opt.v === 'full' ? 0 : draft.depositAmount })}
+                    className={`text-[11px] px-2.5 py-1.5 rounded-xs border transition ${sel ? 'border-accent bg-accent/15 text-bg' : 'border-dark-line text-dark-muted hover:text-bg'}`}>
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+            {(draft.depositType === 'percent' || draft.depositType === 'fixed') && (
+              <div className="mt-2">
+                <Field label={draft.depositType === 'percent' ? 'Porcentaje (0-100)' : 'Monto fijo en pesos'}>
+                  <input
+                    type="number"
+                    min={0}
+                    max={draft.depositType === 'percent' ? 100 : undefined}
+                    value={draft.depositAmount}
+                    onChange={e => setDraft({ ...draft, depositAmount: Math.max(0, Number(e.target.value) || 0) })}
+                    className="bg-transparent text-bg w-full outline-none font-mono text-[14px]" />
+                </Field>
+                <div className="mt-1.5 text-[11px] text-dark-muted">
+                  El cliente deberá pagar esta seña al reservar para confirmar el turno.
+                </div>
+              </div>
+            )}
+            {draft.depositType === 'full' && (
+              <div className="mt-2 text-[11px] text-dark-muted">
+                El cliente paga el 100% del precio al reservar.
+              </div>
+            )}
+          </div>
+
           <div className="flex gap-2 mt-1">
             <button type="button" onClick={save} disabled={pending}
               className="bg-accent text-white px-4 py-2.5 rounded-m text-[13px] font-semibold disabled:opacity-50 active:scale-[0.97] transition">
@@ -681,6 +773,119 @@ function SedesSection({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Pagos section (Mercado Pago) ────────────────────────────────────────────
+
+function PagosSection({
+  settings, onToast
+}: {
+  settings: ShopPaymentSettings | null;
+  onToast: (t: { tone: 'success' | 'error'; text: string }) => void;
+}) {
+  const [pending, start] = useTransition();
+  const [accessToken, setAccessToken] = useState(settings?.mp_access_token || '');
+  const [publicKey, setPublicKey] = useState(settings?.mp_public_key || '');
+  const [isActive, setIsActive] = useState(Boolean(settings?.is_active));
+  const [showToken, setShowToken] = useState(false);
+
+  const save = () => {
+    start(async () => {
+      const r = await upsertShopPaymentSettings({
+        mp_access_token: accessToken.trim() || '',
+        mp_public_key: publicKey.trim() || '',
+        is_active: isActive
+      });
+      if (r?.error) onToast({ tone: 'error', text: r.error });
+      else onToast({ tone: 'success', text: 'Configuración de pagos guardada' });
+    });
+  };
+
+  const toggleActive = () => {
+    if (!accessToken.trim() && !isActive) {
+      onToast({ tone: 'error', text: 'Cargá primero el access token de Mercado Pago' });
+      return;
+    }
+    setIsActive(v => !v);
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="bg-dark-card border border-dark-line rounded-xl px-4 py-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <div className="font-mono text-[10px] tracking-[2px] text-dark-muted">MERCADO PAGO</div>
+            <div className="text-[14px] font-semibold text-bg mt-0.5">
+              {isActive ? 'Activo · cobrás señas al reservar' : 'Inactivo · no se cobran señas'}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={toggleActive}
+            className={`text-[11px] px-3 py-2 rounded-m font-semibold transition ${isActive ? 'bg-bg text-ink' : 'bg-accent text-white'}`}>
+            {isActive ? 'Desactivar' : 'Activar'}
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-dark-card border border-dark-line rounded-xl p-4 flex flex-col gap-2.5">
+        <div className="font-mono text-[10px] tracking-[2px] text-dark-muted">CREDENCIALES</div>
+        <div className="text-[12px] text-dark-muted leading-relaxed">
+          Pegá las credenciales de <span className="text-bg">producción</span> de tu cuenta de Mercado Pago.
+          Las encontrás en <span className="font-mono text-bg">mercadopago.com.ar → Tu negocio → Configuración → Credenciales</span>.
+          Las guardamos cifradas y solo las usamos para cobrar a tu nombre.
+        </div>
+
+        <Field label="Access token (privado)">
+          <div className="flex items-center gap-2">
+            <input
+              type={showToken ? 'text' : 'password'}
+              value={accessToken}
+              onChange={e => setAccessToken(e.target.value)}
+              placeholder="APP_USR-..."
+              className="bg-transparent text-bg w-full outline-none font-mono text-[13px]"
+            />
+            <button
+              type="button"
+              onClick={() => setShowToken(v => !v)}
+              className="text-[10px] text-dark-muted hover:text-bg transition uppercase tracking-[1px]">
+              {showToken ? 'Ocultar' : 'Ver'}
+            </button>
+          </div>
+        </Field>
+
+        <Field label="Public key (opcional, para checkout embebido)">
+          <input
+            value={publicKey}
+            onChange={e => setPublicKey(e.target.value)}
+            placeholder="APP_USR-..."
+            className="bg-transparent text-bg w-full outline-none font-mono text-[13px]"
+          />
+        </Field>
+
+        <div className="flex gap-2 mt-1">
+          <button
+            type="button"
+            onClick={save}
+            disabled={pending}
+            className="bg-accent text-white px-4 py-2.5 rounded-m text-[13px] font-semibold disabled:opacity-50 active:scale-[0.97] transition">
+            {pending ? 'Guardando…' : 'Guardar credenciales'}
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-dark-card border border-dark-line rounded-xl p-4 text-[12px] text-dark-muted leading-relaxed">
+        <div className="font-semibold text-bg mb-1.5">Cómo funciona</div>
+        <ol className="list-decimal pl-4 flex flex-col gap-1">
+          <li>Configurá la seña por servicio (en la pestaña <span className="text-bg">Servicios</span>).</li>
+          <li>El cliente reserva, paga la seña vía Mercado Pago y el turno queda confirmado.</li>
+          <li>Si no paga en 10 min, el slot vuelve a estar libre.</li>
+          <li>El día del turno, en Caja figura el saldo restante (precio total menos seña ya cobrada).</li>
+          <li>Si el cliente cancela con ≥3 hs de anticipación, le devolvemos todo menos el 20% del precio (seña dura). Después no.</li>
+        </ol>
+      </div>
     </div>
   );
 }
