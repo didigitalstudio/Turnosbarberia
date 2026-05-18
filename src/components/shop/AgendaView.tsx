@@ -12,6 +12,8 @@ import { isoFromARLocal } from '@/lib/tz';
 
 type A = {
   id: string; starts_at: string; ends_at: string; customer_name: string; status: string;
+  payment_status?: string | null;
+  payment_amount?: number | null;
   services: { name: string; duration_mins: number; price: number };
   barbers: { id: string; name: string; initials: string; hue: number };
 };
@@ -841,6 +843,11 @@ function AppointmentCard({
               {isInProgress && (
                 <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-xs tracking-wider bg-white/25">
                   EN CURSO
+                </span>
+              )}
+              {appointment.payment_status === 'paid' && Number(appointment.payment_amount || 0) > 0 && (
+                <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-xs tracking-wider bg-white/25" title="Seña ya cobrada">
+                  $✓
                 </span>
               )}
               {isDone && <Icon name="check" size={12}/>}

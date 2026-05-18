@@ -20,6 +20,8 @@ type ApptLite = {
   starts_at: string;
   service_name: string | null;
   service_price: number;
+  deposit_paid: number;
+  balance_due: number;
   barber_name: string | null;
   already_charged: boolean;
 };
@@ -298,7 +300,9 @@ function SaleModal({
   const pendingAppts = todayAppointments.filter(a => !a.already_charged);
   const [apptId, setApptId] = useState(pendingAppts[0]?.id || '');
   const selectedAppt = pendingAppts.find(a => a.id === apptId);
-  const [apptAmount, setApptAmount] = useState(selectedAppt?.service_price || 0);
+  // Pre-cargamos el saldo (precio total menos seña ya cobrada por MP), no el
+  // precio total. Si nunca hubo seña, balance_due == service_price.
+  const [apptAmount, setApptAmount] = useState(selectedAppt?.balance_due || selectedAppt?.service_price || 0);
   const [apptMethod, setApptMethod] = useState<PaymentMethod>('efectivo');
 
   // Walk-in state
@@ -348,7 +352,7 @@ function SaleModal({
               <Select label="Turno de hoy" value={apptId} onChange={(v) => {
                 setApptId(v);
                 const a = pendingAppts.find(x => x.id === v);
-                if (a) setApptAmount(a.service_price);
+                if (a) setApptAmount(a.balance_due || a.service_price);
               }}>
                 {pendingAppts.map(a => (
                   <option key={a.id} value={a.id}>
@@ -356,7 +360,14 @@ function SaleModal({
                   </option>
                 ))}
               </Select>
-              <NumberField label="Monto" value={apptAmount} onChange={setApptAmount} />
+              {selectedAppt && selectedAppt.deposit_paid > 0 && (
+                <div className="bg-accent/10 border border-accent/30 rounded-m px-3 py-2 text-[12px] text-bg leading-relaxed">
+                  <div className="font-mono text-[10px] tracking-[1.5px] text-accent uppercase mb-0.5">Seña ya cobrada</div>
+                  El cliente pagó <span className="font-mono">{money(selectedAppt.deposit_paid)}</span> al reservar vía Mercado Pago.
+                  Queda por cobrar <span className="font-mono font-semibold">{money(selectedAppt.balance_due)}</span> del precio total ({money(selectedAppt.service_price)}).
+                </div>
+              )}
+              <NumberField label={selectedAppt && selectedAppt.deposit_paid > 0 ? 'Saldo a cobrar' : 'Monto'} value={apptAmount} onChange={setApptAmount} />
               <MethodSelect value={apptMethod} onChange={setApptMethod} />
             </>
           )}
