@@ -346,7 +346,9 @@ export async function addShop(input: {
       address: (d.address || '').trim() || null,
       phone: (d.phone || '').trim() || null,
       owner_id: user.id,
-      is_active: false,
+      // Demo dueño: auto-activamos para que pueda probar el flujo Pro sin
+      // esperar aprobación manual.
+      is_active: user.email === 'dueno.demo@turnosbarberia.app',
       // Nuevas sedes heredan el plan del owner (si es pro, seguirá siendo pro).
       plan: currentShop.plan || 'starter'
     });
