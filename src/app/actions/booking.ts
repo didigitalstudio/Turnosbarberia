@@ -19,6 +19,32 @@ import { partsInAR } from '@/lib/tz';
 const NAME_RE  = /^[\p{L}\s'.-]{2,80}$/u;
 const PHONE_RE = /^[+\d\s()-]{6,30}$/;
 
+/**
+ * Monto de seña requerido para un servicio. Devuelve 0 si no exige seña.
+ * - 'percent': % del precio (redondeado a 2 decimales).
+ * - 'fixed': monto fijo en pesos.
+ * - 'full': 100% del precio.
+ * - 'none': 0.
+ */
+function computeDepositAmount(service: {
+  price: number;
+  deposit_type: 'none' | 'percent' | 'fixed' | 'full';
+  deposit_amount: number;
+}): number {
+  const price = Number(service.price) || 0;
+  switch (service.deposit_type) {
+    case 'percent':
+      return Math.round(price * (Number(service.deposit_amount) || 0)) / 100;
+    case 'fixed':
+      return Math.min(price, Number(service.deposit_amount) || 0);
+    case 'full':
+      return price;
+    case 'none':
+    default:
+      return 0;
+  }
+}
+
 const BookingSchema = z.object({
   shopSlug:          z.string().min(1).max(50),
   serviceId:         z.string().uuid(),
@@ -58,13 +84,26 @@ export async function createBooking(input: z.infer<typeof BookingSchema>) {
   }
 
   const admin = createAdminClient();
+
+  // Antes de buscar conflictos y reservar, liberamos los holds vencidos
+  // para que un slot pending_payment ya caducado no bloquee al cliente actual.
+  await admin.rpc('release_expired_holds').then(() => null, () => null);
+
   const { data: service } = await admin
     .from('services')
-    .select('id, duration_mins, is_active, shop_id')
+    .select('id, duration_mins, price, is_active, shop_id, deposit_type, deposit_amount')
     .eq('id', data.serviceId)
     .eq('shop_id', shop.id)
     .eq('is_active', true)
-    .maybeSingle();
+    .maybeSingle<{
+      id: string;
+      duration_mins: number;
+      price: number;
+      is_active: boolean;
+      shop_id: string;
+      deposit_type: 'none' | 'percent' | 'fixed' | 'full';
+      deposit_amount: number;
+    }>();
   if (!service) {
     return { error: 'Ese servicio ya no está disponible.' };
   }
@@ -81,7 +120,7 @@ export async function createBooking(input: z.infer<typeof BookingSchema>) {
         .select('id')
         .eq('shop_id', shop.id)
         .eq('barber_id', b.id)
-        .neq('status', 'cancelled')
+        .not('status', 'in', '("cancelled","no_show","expired")')
         .lt('starts_at', endsAt.toISOString())
         .gt('ends_at', startsAt.toISOString())
         .limit(1);
@@ -144,6 +183,18 @@ export async function createBooking(input: z.infer<typeof BookingSchema>) {
     rescheduleTargetId = oldAppt.id;
   }
 
+  // Si el servicio exige seña, calculamos el monto y el turno se crea como
+  // 'pending_payment' con un hold de 10 minutos. Sin pago confirmado en
+  // ese tiempo, release_expired_holds() lo marca como 'expired' y el slot
+  // queda libre nuevamente. La transición a 'confirmed' la hace el webhook
+  // del payment provider (Hito 4).
+  const depositAmount = computeDepositAmount(service);
+  const requiresDeposit = depositAmount > 0;
+  const PAYMENT_HOLD_MS = 10 * 60 * 1000;
+  const expiresAt = requiresDeposit
+    ? new Date(Date.now() + PAYMENT_HOLD_MS).toISOString()
+    : null;
+
   const { data: appointment, error: insErr } = await admin
     .from('appointments')
     .insert({
@@ -156,7 +207,10 @@ export async function createBooking(input: z.infer<typeof BookingSchema>) {
       customer_email: data.customerEmail,
       starts_at: startsAt.toISOString(),
       ends_at: endsAt.toISOString(),
-      status: 'confirmed'
+      status: requiresDeposit ? 'pending_payment' : 'confirmed',
+      payment_status: requiresDeposit ? 'pending' : 'not_required',
+      payment_amount: requiresDeposit ? depositAmount : null,
+      payment_expires_at: expiresAt
     })
     .select('id')
     .single();
@@ -215,8 +269,11 @@ export async function createBooking(input: z.infer<typeof BookingSchema>) {
     maxAge: RECENT_BOOKINGS_MAX_AGE
   });
 
-  // Emails transaccionales (best-effort, no bloquean el flujo).
-  try {
+  // Emails transaccionales (best-effort, no bloquean el flujo). Skipeamos
+  // los turnos pending_payment: si la seña nunca se paga, no queremos haber
+  // mandado confirmación. El webhook del provider va a disparar los emails
+  // cuando el pago entre.
+  if (!requiresDeposit) try {
     const [{ data: svcRow }, { data: bbRow }, { data: shopOwner }] = await Promise.all([
       admin.from('services').select('name').eq('id', data.serviceId).maybeSingle<{ name: string }>(),
       admin.from('barbers').select('name').eq('id', barberId).maybeSingle<{ name: string }>(),

@@ -54,7 +54,7 @@ export default async function ShopCashPage({
       .eq('shop_id', shop.id)
       .gte('starts_at', startISO)
       .lt('starts_at', endISO)
-      .neq('status', 'cancelled')
+      .not('status', 'in', '("cancelled","expired","pending_payment")')
       .order('starts_at')
   ]);
 

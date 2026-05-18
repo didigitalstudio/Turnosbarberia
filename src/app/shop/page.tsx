@@ -36,7 +36,7 @@ export default async function ShopAgendaPage({ searchParams }: { searchParams: {
       .eq('shop_id', shop.id)
       .gte('starts_at', dayStart.toISOString())
       .lt('starts_at', dayEnd.toISOString())
-      .neq('status', 'cancelled')
+      .not('status', 'in', '("cancelled","expired","pending_payment")')
       .order('starts_at'),
     supabase.from('barbers').select('*').eq('shop_id', shop.id).eq('is_active', true),
     supabase.from('schedules').select('day_of_week, start_time, end_time, is_working').eq('shop_id', shop.id),
@@ -58,7 +58,7 @@ export default async function ShopAgendaPage({ searchParams }: { searchParams: {
         .eq('shop_id', shop.id)
         .gte('starts_at', weekStartDate.toISOString())
         .lt('starts_at', weekEndDate.toISOString())
-        .neq('status', 'cancelled')
+        .not('status', 'in', '("cancelled","expired","pending_payment")')
         .order('starts_at')
     );
   }

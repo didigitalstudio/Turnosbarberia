@@ -34,7 +34,7 @@ export default async function ShopTeamPage() {
       .eq('shop_id', shop.id)
       .gte('starts_at', startOfWeek.toISOString())
       .lt('starts_at', endOfWeek.toISOString())
-      .neq('status', 'cancelled'),
+      .not('status', 'in', '("cancelled","expired","pending_payment")'),
     supabase.from('schedules').select('*').eq('shop_id', shop.id),
     supabase
       .from('appointments')

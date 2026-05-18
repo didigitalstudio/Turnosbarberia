@@ -12,6 +12,18 @@ import type { Service, Barber } from '@/types/db';
 
 type Slot = { time: string; iso: string; taken: boolean };
 
+/** Monto a cobrar de seña según la config del servicio. 0 si no exige. */
+function depositOf(s: Service): number {
+  const price = Number(s.price) || 0;
+  const amount = Number(s.deposit_amount) || 0;
+  switch (s.deposit_type) {
+    case 'percent': return Math.round(price * amount) / 100;
+    case 'fixed':   return Math.min(price, amount);
+    case 'full':    return price;
+    default:        return 0;
+  }
+}
+
 export function BookingFlow({
   shopSlug, services, barbers, preselectedService, preselectedBarber, profile, workingDays, rescheduleFromId
 }: {
@@ -80,6 +92,8 @@ export function BookingFlow({
   }, [barberId, serviceId, dateISO, shopSlug]);
 
   const total = service ? Number(service.price) : 0;
+  const depositNow = service ? depositOf(service) : 0;
+  const requiresDeposit = depositNow > 0;
   const stepAnimClass = step > prevStep ? 'step-enter' : step < prevStep ? 'step-enter-back' : '';
 
   return (
@@ -118,6 +132,7 @@ export function BookingFlow({
               {services.map(s => {
                 const sel = s.id === serviceId;
                 const pulse = confirmingSvc === s.id;
+                const depAmount = depositOf(s);
                 return (
                   <button key={s.id} type="button"
                     disabled={!!confirmingSvc}
@@ -139,7 +154,12 @@ export function BookingFlow({
                       </div>
                       <div>
                         <div className="text-[15px] font-medium">{s.name}</div>
-                        <div className={`text-[11px] mt-0.5 ${sel || pulse ? 'text-dark-muted' : 'text-muted'}`}>{s.duration_mins} min</div>
+                        <div className={`text-[11px] mt-0.5 ${sel || pulse ? 'text-dark-muted' : 'text-muted'}`}>
+                          {s.duration_mins} min
+                          {depAmount > 0 && (
+                            <span className={sel || pulse ? 'text-accent' : 'text-accent'}> · Seña {money(depAmount)}</span>
+                          )}
+                        </div>
                       </div>
                     </div>
                     <div className="font-mono text-[14px] font-medium">{money(Number(s.price))}</div>
@@ -278,7 +298,21 @@ export function BookingFlow({
                 weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit', hour12:false,
                 timeZone:'America/Argentina/Buenos_Aires'
               }).replace('.', '') : ''}/>
+              <Row label="Total" value={money(total)}/>
+              {requiresDeposit && (
+                <Row label="Seña al reservar" value={money(depositNow)}/>
+              )}
             </div>
+
+            {requiresDeposit && (
+              <div className="mt-3 bg-accent/10 border border-accent/30 rounded-xl p-3.5 text-[12px] text-ink leading-relaxed">
+                <div className="font-semibold mb-1 text-[13px]">Confirmás con una seña de {money(depositNow)}</div>
+                <div className="text-muted">
+                  Te vamos a redirigir a Mercado Pago. El turno se reserva por 10 min mientras completás el pago.
+                  Si cancelás con menos de 3 hs de anticipación, perdés la seña.
+                </div>
+              </div>
+            )}
 
             <SectionLabel className="mt-5">RESERVANDO COMO</SectionLabel>
             <div className="bg-card border border-line rounded-xl px-4 py-3 flex flex-col gap-1">
