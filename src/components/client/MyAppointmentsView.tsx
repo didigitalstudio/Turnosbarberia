@@ -93,13 +93,28 @@ export function MyAppointmentsView({ slug, upcoming, history }: { slug: string; 
             {rest.map(a => {
               const d = new Date(a.starts_at);
               return (
-                <div key={a.id} className="flex items-center gap-3.5 bg-card border border-line rounded-xl px-3.5 py-3 mb-2 active:scale-[0.99] transition">
+                <div key={a.id} className="flex items-center gap-3.5 bg-card border border-line rounded-xl px-3.5 py-3 mb-2 transition">
                   <DateChip date={d} variant="light" />
-                  <div className="flex-1">
-                    <div className="text-sm font-medium">{a.services?.name}</div>
-                    <div className="text-[11px] text-muted mt-0.5">con {a.barbers?.name} · {d.toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit', hour12:false , timeZone: 'America/Argentina/Buenos_Aires' })}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate">{a.services?.name}</div>
+                    <div className="text-[11px] text-muted mt-0.5 truncate">
+                      con {a.barbers?.name} · {d.toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit', hour12:false , timeZone: 'America/Argentina/Buenos_Aires' })}
+                    </div>
+                    <div className="flex gap-1.5 mt-2">
+                      <Link
+                        href={reservar(a.service_id || '', a.id)}
+                        className="text-[11px] px-2 py-1 rounded-xs border border-line text-ink hover:border-ink/40 transition">
+                        Reprogramar
+                      </Link>
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={() => setConfirmCancel(a.id)}
+                        className="text-[11px] px-2 py-1 rounded-xs border border-line text-muted hover:text-ink hover:border-ink/40 transition disabled:opacity-50">
+                        Cancelar
+                      </button>
+                    </div>
                   </div>
-                  <Icon name="chevron-right" size={18} color="#7A766E"/>
                 </div>
               );
             })}
