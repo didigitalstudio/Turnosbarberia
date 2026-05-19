@@ -155,22 +155,10 @@ async function main() {
     }
   }
 
-  // ── Configurar MP ────────────────────────────────────────────────────────
-  console.log('▶ Configurando shop_payment_settings (MP)…');
-  const mpAccessToken = process.env.MP_DEV_ACCESS_TOKEN;
-  const mpPublicKey   = process.env.NEXT_PUBLIC_MP_DEV_PUBLIC_KEY;
-  if (mpAccessToken && mpPublicKey) {
-    const { error: mpErr } = await supabase
-      .from('shop_payment_settings')
-      .upsert(
-        { shop_id: shop.id, mp_access_token: mpAccessToken, mp_public_key: mpPublicKey, is_active: true },
-        { onConflict: 'shop_id' }
-      );
-    if (mpErr) console.warn('  ⚠ shop_payment_settings:', mpErr.message);
-    else console.log('  ✓ MP configurado (is_active=true)');
-  } else {
-    console.warn('  ⚠ MP_DEV_ACCESS_TOKEN / NEXT_PUBLIC_MP_DEV_PUBLIC_KEY no están en .env — skipping MP');
-  }
+  // MP y facturación AFIP se dejan sin configurar intencionalmente:
+  // el dueño de cada barbería conecta su propia cuenta MP y sus creds
+  // TusFacturas desde Ajustes. La demo muestra el estado "sin configurar"
+  // para que el prospecto vea el flujo de onboarding.
 
   // ── Seed datos transaccionales ──────────────────────────────────────────
   console.log('▶ Buscando barberos y servicios del shop demo…');
