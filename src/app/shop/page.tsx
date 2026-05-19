@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { getAdminShop, getUserShops } from '@/lib/shop-context';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { AgendaView } from '@/components/shop/AgendaView';
@@ -79,11 +79,40 @@ export default async function ShopAgendaPage({ searchParams }: { searchParams: {
 
   const userShops = user ? await getUserShops(user.id) : [];
 
+  // Pre-fetch del estado de configuración para el checklist. Se queda con
+  // counts/flags livianos — no tiramos abajo el dashboard si alguna query falla.
+  let checklistState = {
+    servicesCount: 0,
+    barbersCount: (barbers || []).length,
+    schedulesCount: ((schedules as any[]) || []).filter(s => s.is_working).length,
+    mpActive: false,
+    waActive: false
+  };
+  try {
+    const admin = createAdminClient();
+    const [svcCount, mp, wa] = await Promise.all([
+      supabase.from('services').select('id', { count: 'exact', head: true }).eq('shop_id', shop.id).eq('is_active', true),
+      admin.from('shop_payment_settings').select('is_active').eq('shop_id', shop.id).maybeSingle<{ is_active: boolean }>(),
+      admin.from('shop_whatsapp_settings').select('is_active').eq('shop_id', shop.id).maybeSingle<{ is_active: boolean }>()
+    ]);
+    checklistState = {
+      servicesCount: svcCount.count || 0,
+      barbersCount: (barbers || []).length,
+      schedulesCount: ((schedules as any[]) || []).filter(s => s.is_working).length,
+      mpActive: Boolean(mp.data?.is_active),
+      waActive: Boolean(wa.data?.is_active)
+    };
+  } catch { /* checklist es best-effort, no rompe la página */ }
+
   return (
     <main className="flex-1 flex flex-col min-w-0 mx-auto w-full max-w-[440px] md:max-w-none md:mx-0">
       <ShopHeader title="Agenda" />
       {zeroState ? (
-        <ShopActivationChecklist shopName={shop.name} slug={shop.slug}/>
+        <ShopActivationChecklist
+          shopName={shop.name}
+          slug={shop.slug}
+          state={checklistState}
+        />
       ) : (
         <AgendaView
           appointments={appointments}
