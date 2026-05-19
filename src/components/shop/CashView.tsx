@@ -6,13 +6,16 @@ import { Stripe } from '@/components/shared/Stripe';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { Toast } from '@/components/shared/Toast';
 import { money } from '@/lib/format';
-import type { Sale, Product, Expense, PaymentMethod } from '@/types/db';
+import type { Sale, Product, Expense, PaymentMethod, TipoDoc, ClienteCondicionIva } from '@/types/db';
 import {
   recordAppointmentSale,
   recordWalkInSale,
   recordProductSale,
   recordExpense
 } from '@/app/actions/caja';
+import { emitInvoice } from '@/app/actions/invoicing';
+
+export type InvoiceRef = { id: string; pdf_url: string | null; numero: number | null; tipo: string };
 
 type ApptLite = {
   id: string;
@@ -27,7 +30,8 @@ type ApptLite = {
 };
 
 export function CashView({
-  sales, products, expenses, todayAppointments, date, todayDate
+  sales, products, expenses, todayAppointments, date, todayDate,
+  invoicingActive, invoicedSales
 }: {
   sales: Sale[];
   products: Product[];
@@ -37,9 +41,14 @@ export function CashView({
   date: string;
   /** Hoy en TZ del shop (YYYY-MM-DD). Se usa para etiquetar y para el límite del input. */
   todayDate: string;
+  /** Si la facturación AFIP está habilitada y configurada para este shop. */
+  invoicingActive?: boolean;
+  /** Map sale_id → invoice emitida (status='emitted'). */
+  invoicedSales?: Record<string, InvoiceRef>;
 }) {
   const router = useRouter();
   const [modal, setModal] = useState<null | 'sale' | 'expense'>(null);
+  const [invoiceFor, setInvoiceFor] = useState<Sale | null>(null);
   const [toast, setToast] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
 
   const ingresos = useMemo(() => sales.reduce((s, x) => s + Number(x.amount || 0), 0), [sales]);

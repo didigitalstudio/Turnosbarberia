@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { getAdminShop } from '@/lib/shop-context';
 import { getShopFeatures } from '@/lib/subscriptions';
 import { partsInAR, SHOP_OFFSET } from '@/lib/tz';
@@ -70,6 +70,35 @@ export default async function ShopCashPage({
     chargedSet = new Set(((charged as any[]) || []).map(s => s.appointment_id).filter(Boolean));
   }
 
+  // Facturación: traemos invoicing_settings (para saber si está activo) y las
+  // facturas emitidas para los sales del día (mostrar badge + link PDF).
+  const admin = createAdminClient();
+  const saleIds = ((sales as any[]) || []).map(s => s.id);
+  const [
+    { data: invoicingSettings },
+    { data: invoicesData }
+  ] = await Promise.all([
+    admin
+      .from('shop_invoicing_settings')
+      .select('is_active')
+      .eq('shop_id', shop.id)
+      .maybeSingle<{ is_active: boolean }>(),
+    saleIds.length
+      ? admin
+          .from('invoices')
+          .select('id, sale_id, status, pdf_url, numero, tipo_comprobante')
+          .eq('shop_id', shop.id)
+          .in('sale_id', saleIds)
+          .eq('status', 'emitted')
+      : Promise.resolve({ data: [] as Array<{ id: string; sale_id: string; status: string; pdf_url: string | null; numero: number | null; tipo_comprobante: string }> })
+  ]);
+  const invoicingActive = Boolean(invoicingSettings?.is_active);
+  const invoicesBySale = new Map<string, { id: string; pdf_url: string | null; numero: number | null; tipo: string }>();
+  for (const inv of (invoicesData as any[]) || []) {
+    if (inv.sale_id) invoicesBySale.set(inv.sale_id, { id: inv.id, pdf_url: inv.pdf_url, numero: inv.numero, tipo: inv.tipo_comprobante });
+  }
+  const invoicedSales = Object.fromEntries(invoicesBySale.entries());
+
   const todayAppointments = ((appts as any[]) || []).map(a => {
     const fullPrice = Number(a.services?.price || 0);
     const deposit = a.payment_status === 'paid' ? Number(a.payment_amount || 0) : 0;
@@ -100,6 +129,8 @@ export default async function ShopCashPage({
           todayAppointments={todayAppointments}
           date={date}
           todayDate={todayAR}
+          invoicingActive={invoicingActive}
+          invoicedSales={invoicedSales}
         />
       </FeatureGate>
     </main>
