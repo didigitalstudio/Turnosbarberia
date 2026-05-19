@@ -367,9 +367,10 @@ export async function addShop(input: {
       address: (d.address || '').trim() || null,
       phone: (d.phone || '').trim() || null,
       owner_id: user.id,
-      // Plan ya validado arriba: sólo Pro llega acá. Auto-activamos para no
-      // forzar aprobación manual a un cliente que ya paga.
+      // Plan ya validado arriba: sólo Pro llega acá. Auto-activamos y aprobamos
+      // porque ya es un cliente existente que paga — no requiere revisión manual.
       is_active: true,
+      aprobado: true,
       // Nuevas sedes heredan el plan del owner (si es pro, seguirá siendo pro).
       plan: currentShop.plan || 'starter'
     });
