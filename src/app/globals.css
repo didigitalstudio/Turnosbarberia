@@ -31,6 +31,8 @@ html, body {
 * { box-sizing: border-box; }
 button { font-family: inherit; cursor: pointer; }
 input, textarea, select { font-family: inherit; }
+/* Selects dentro de áreas oscuras: el popup nativo también usa tema dark */
+.bg-dark select, .bg-dark-card select { color-scheme: dark; }
 
 /* Accessible focus ring that respects our palette */
 :where(button, a, input, textarea, select):focus-visible {

@@ -111,9 +111,9 @@ export function AjustesView({
         {tab === 'team' && <TeamSection barbers={barbers} onToast={setToast} />}
         {tab === 'hours' && <HoursSection barbers={barbers} schedules={schedules} blocks={scheduleBlocks} onToast={setToast} />}
         {tab === 'sedes' && <SedesSection shop={shop} userShops={userShops} onToast={setToast} />}
-        {tab === 'pagos' && <PagosSection settings={paymentSettings} onToast={setToast} />}
-        {tab === 'whatsapp' && <WhatsappSection settings={whatsappSettings} onToast={setToast} />}
-        {tab === 'facturacion' && <FacturacionSection settings={invoicingSettings} onToast={setToast} />}
+        {tab === 'pagos' && <PagosSection settings={paymentSettings} shopName={shop.name} onToast={setToast} />}
+        {tab === 'whatsapp' && <WhatsappSection settings={whatsappSettings} shopName={shop.name} onToast={setToast} />}
+        {tab === 'facturacion' && <FacturacionSection settings={invoicingSettings} shopName={shop.name} onToast={setToast} />}
       </div>
     </div>
   );
@@ -711,7 +711,7 @@ function BlocksSubsection({ barbers, blocks, onToast }: { barbers: Barber[]; blo
             <select
               value={barberId}
               onChange={e => setBarberId(e.target.value as 'all' | string)}
-              className="bg-transparent text-bg w-full outline-none text-[14px]">
+              className="bg-dark-card text-bg w-full outline-none text-[14px]">
               <option value="all" className="bg-dark-card">Toda la sede</option>
               {barbers.map(b => (
                 <option key={b.id} value={b.id} className="bg-dark-card">{b.name}</option>
@@ -996,35 +996,31 @@ function SedesSection({
 // ─── Pagos section (Mercado Pago) ────────────────────────────────────────────
 
 function PagosSection({
-  settings, onToast
+  settings, shopName, onToast
 }: {
   settings: ShopPaymentSettings | null;
+  shopName: string;
   onToast: (t: { tone: 'success' | 'error'; text: string }) => void;
 }) {
   const [pending, start] = useTransition();
-  const [accessToken, setAccessToken] = useState(settings?.mp_access_token || '');
-  const [publicKey, setPublicKey] = useState(settings?.mp_public_key || '');
   const [isActive, setIsActive] = useState(Boolean(settings?.is_active));
-  const [showToken, setShowToken] = useState(false);
-
-  const save = () => {
-    start(async () => {
-      const r = await upsertShopPaymentSettings({
-        mp_access_token: accessToken.trim() || '',
-        mp_public_key: publicKey.trim() || '',
-        is_active: isActive
-      });
-      if (r?.error) onToast({ tone: 'error', text: r.error });
-      else onToast({ tone: 'success', text: 'Configuración de pagos guardada' });
-    });
-  };
 
   const toggleActive = () => {
-    if (!accessToken.trim() && !isActive) {
-      onToast({ tone: 'error', text: 'Cargá primero el access token de Mercado Pago' });
+    if (!settings?.mp_access_token && !isActive) {
+      onToast({ tone: 'error', text: 'Primero contactanos para configurar la integración con MP.' });
       return;
     }
-    setIsActive(v => !v);
+    const newActive = !isActive;
+    setIsActive(newActive);
+    start(async () => {
+      const r = await upsertShopPaymentSettings({
+        mp_access_token: settings?.mp_access_token || '',
+        mp_public_key: settings?.mp_public_key || '',
+        is_active: newActive
+      });
+      if (r?.error) { setIsActive(!newActive); onToast({ tone: 'error', text: r.error }); }
+      else onToast({ tone: 'success', text: newActive ? 'Cobros con MP activados' : 'Cobros con MP desactivados' });
+    });
   };
 
   return (
@@ -1040,66 +1036,23 @@ function PagosSection({
           <button
             type="button"
             onClick={toggleActive}
-            className={`text-[11px] px-3 py-2 rounded-m font-semibold transition ${isActive ? 'bg-bg text-ink' : 'bg-accent text-white'}`}>
-            {isActive ? 'Desactivar' : 'Activar'}
-          </button>
-        </div>
-      </div>
-
-      <div className="bg-dark-card border border-dark-line rounded-xl p-4 flex flex-col gap-2.5">
-        <div className="font-mono text-[10px] tracking-[2px] text-dark-muted">CREDENCIALES</div>
-        <div className="text-[12px] text-dark-muted leading-relaxed">
-          Pegá las credenciales de <span className="text-bg">producción</span> de tu cuenta de Mercado Pago.
-          Las encontrás en <span className="font-mono text-bg">mercadopago.com.ar → Tu negocio → Configuración → Credenciales</span>.
-          Las guardamos cifradas y solo las usamos para cobrar a tu nombre.
-        </div>
-
-        <Field label="Access token (privado)">
-          <div className="flex items-center gap-2">
-            <input
-              type={showToken ? 'text' : 'password'}
-              value={accessToken}
-              onChange={e => setAccessToken(e.target.value)}
-              placeholder="APP_USR-..."
-              className="bg-transparent text-bg w-full outline-none font-mono text-[13px]"
-            />
-            <button
-              type="button"
-              onClick={() => setShowToken(v => !v)}
-              className="text-[10px] text-dark-muted hover:text-bg transition uppercase tracking-[1px]">
-              {showToken ? 'Ocultar' : 'Ver'}
-            </button>
-          </div>
-        </Field>
-
-        <Field label="Public key (opcional, para checkout embebido)">
-          <input
-            value={publicKey}
-            onChange={e => setPublicKey(e.target.value)}
-            placeholder="APP_USR-..."
-            className="bg-transparent text-bg w-full outline-none font-mono text-[13px]"
-          />
-        </Field>
-
-        <div className="flex gap-2 mt-1">
-          <button
-            type="button"
-            onClick={save}
             disabled={pending}
-            className="bg-accent text-white px-4 py-2.5 rounded-m text-[13px] font-semibold disabled:opacity-50 active:scale-[0.97] transition">
-            {pending ? 'Guardando…' : 'Guardar credenciales'}
+            className={`text-[11px] px-3 py-2 rounded-m font-semibold transition disabled:opacity-50 ${isActive ? 'bg-bg text-ink' : 'bg-accent text-white'}`}>
+            {pending ? '…' : isActive ? 'Desactivar' : 'Activar'}
           </button>
         </div>
       </div>
+
+      <ContactDiDigital feature="Mercado Pago" shopName={shopName} />
 
       <div className="bg-dark-card border border-dark-line rounded-xl p-4 text-[12px] text-dark-muted leading-relaxed">
         <div className="font-semibold text-bg mb-1.5">Cómo funciona</div>
         <ol className="list-decimal pl-4 flex flex-col gap-1">
-          <li>Configurá la seña por servicio (en la pestaña <span className="text-bg">Servicios</span>).</li>
+          <li>Configuramos tu cuenta de Mercado Pago y activamos el módulo.</li>
           <li>El cliente reserva, paga la seña vía Mercado Pago y el turno queda confirmado.</li>
           <li>Si no paga en 10 min, el slot vuelve a estar libre.</li>
-          <li>El día del turno, en Caja figura el saldo restante (precio total menos seña ya cobrada).</li>
-          <li>Si el cliente cancela con ≥3 hs de anticipación, le devolvemos todo menos el 20% del precio (seña dura). Después no.</li>
+          <li>En Caja figura el saldo restante (precio total menos seña ya cobrada).</li>
+          <li>Si el cliente cancela con ≥3 hs de anticipación, le devolvemos todo menos el 20% (seña dura). Después no.</li>
         </ol>
       </div>
     </div>
@@ -1109,43 +1062,33 @@ function PagosSection({
 // ─── WhatsApp section (Meta Cloud API) ───────────────────────────────────────
 
 function WhatsappSection({
-  settings, onToast
+  settings, shopName, onToast
 }: {
   settings: ShopWhatsappSettings | null;
+  shopName: string;
   onToast: (t: { tone: 'success' | 'error'; text: string }) => void;
 }) {
   const [pending, start] = useTransition();
-  const [phoneNumberId, setPhoneNumberId] = useState(settings?.phone_number_id || '');
-  const [accessToken, setAccessToken] = useState(settings?.access_token || '');
-  const [templateName, setTemplateName] = useState(settings?.reminder_template_name || 'appointment_reminder');
-  const [templateLanguage, setTemplateLanguage] = useState(settings?.reminder_template_language || 'es_AR');
   const [isActive, setIsActive] = useState(Boolean(settings?.is_active));
-  const [showToken, setShowToken] = useState(false);
-
-  const save = () => {
-    start(async () => {
-      const r = await upsertShopWhatsappSettings({
-        phone_number_id: phoneNumberId.trim() || '',
-        access_token: accessToken.trim() || '',
-        reminder_template_name: templateName.trim(),
-        reminder_template_language: templateLanguage.trim(),
-        is_active: isActive
-      });
-      if (r?.error) onToast({ tone: 'error', text: r.error });
-      else onToast({ tone: 'success', text: 'Configuración de WhatsApp guardada' });
-    });
-  };
 
   const toggleActive = () => {
-    if (!accessToken.trim() && !isActive) {
-      onToast({ tone: 'error', text: 'Cargá primero el access token y el phone number ID' });
+    if (!settings?.access_token && !isActive) {
+      onToast({ tone: 'error', text: 'Primero contactanos para configurar la integración con WhatsApp.' });
       return;
     }
-    if (!phoneNumberId.trim() && !isActive) {
-      onToast({ tone: 'error', text: 'Falta el phone number ID' });
-      return;
-    }
-    setIsActive(v => !v);
+    const newActive = !isActive;
+    setIsActive(newActive);
+    start(async () => {
+      const r = await upsertShopWhatsappSettings({
+        phone_number_id: settings?.phone_number_id || '',
+        access_token: settings?.access_token || '',
+        reminder_template_name: settings?.reminder_template_name || 'appointment_reminder',
+        reminder_template_language: settings?.reminder_template_language || 'es_AR',
+        is_active: newActive
+      });
+      if (r?.error) { setIsActive(!newActive); onToast({ tone: 'error', text: r.error }); }
+      else onToast({ tone: 'success', text: newActive ? 'WhatsApp activado' : 'WhatsApp desactivado' });
+    });
   };
 
   return (
@@ -1161,95 +1104,22 @@ function WhatsappSection({
           <button
             type="button"
             onClick={toggleActive}
-            className={`text-[11px] px-3 py-2 rounded-m font-semibold transition ${isActive ? 'bg-bg text-ink' : 'bg-accent text-white'}`}>
-            {isActive ? 'Desactivar' : 'Activar'}
-          </button>
-        </div>
-      </div>
-
-      <div className="bg-dark-card border border-dark-line rounded-xl p-4 flex flex-col gap-2.5">
-        <div className="font-mono text-[10px] tracking-[2px] text-dark-muted">CREDENCIALES</div>
-        <div className="text-[12px] text-dark-muted leading-relaxed">
-          Las generás en <span className="text-bg">business.facebook.com → WhatsApp → API Setup</span>.
-          Necesitás un número verificado con Meta (sin línea celular activa de WhatsApp normal) y un
-          access token de tipo <span className="text-bg">System User</span> con permisos
-          <span className="font-mono text-bg"> whatsapp_business_messaging</span>.
-        </div>
-
-        <Field label="Phone Number ID">
-          <input
-            value={phoneNumberId}
-            onChange={e => setPhoneNumberId(e.target.value)}
-            placeholder="123456789012345"
-            className="bg-transparent text-bg w-full outline-none font-mono text-[13px]"
-          />
-        </Field>
-
-        <Field label="Access token (System User)">
-          <div className="flex items-center gap-2">
-            <input
-              type={showToken ? 'text' : 'password'}
-              value={accessToken}
-              onChange={e => setAccessToken(e.target.value)}
-              placeholder="EAA..."
-              className="bg-transparent text-bg w-full outline-none font-mono text-[13px]"
-            />
-            <button
-              type="button"
-              onClick={() => setShowToken(v => !v)}
-              className="text-[10px] text-dark-muted hover:text-bg transition uppercase tracking-[1px]">
-              {showToken ? 'Ocultar' : 'Ver'}
-            </button>
-          </div>
-        </Field>
-
-        <div className="grid grid-cols-2 gap-2">
-          <Field label="Nombre del template">
-            <input
-              value={templateName}
-              onChange={e => setTemplateName(e.target.value)}
-              placeholder="appointment_reminder"
-              className="bg-transparent text-bg w-full outline-none font-mono text-[13px]"
-            />
-          </Field>
-          <Field label="Idioma del template">
-            <input
-              value={templateLanguage}
-              onChange={e => setTemplateLanguage(e.target.value)}
-              placeholder="es_AR"
-              className="bg-transparent text-bg w-full outline-none font-mono text-[13px]"
-            />
-          </Field>
-        </div>
-
-        <div className="flex gap-2 mt-1">
-          <button
-            type="button"
-            onClick={save}
             disabled={pending}
-            className="bg-accent text-white px-4 py-2.5 rounded-m text-[13px] font-semibold disabled:opacity-50 active:scale-[0.97] transition">
-            {pending ? 'Guardando…' : 'Guardar credenciales'}
+            className={`text-[11px] px-3 py-2 rounded-m font-semibold transition disabled:opacity-50 ${isActive ? 'bg-bg text-ink' : 'bg-accent text-white'}`}>
+            {pending ? '…' : isActive ? 'Desactivar' : 'Activar'}
           </button>
         </div>
       </div>
+
+      <ContactDiDigital feature="WhatsApp Business" shopName={shopName} />
 
       <div className="bg-dark-card border border-dark-line rounded-xl p-4 text-[12px] text-dark-muted leading-relaxed">
-        <div className="font-semibold text-bg mb-1.5">Template necesario en Meta</div>
-        <p>Antes de activar, registrá este template en el WhatsApp Manager del cliente:</p>
-        <div className="mt-2 p-3 bg-dark border border-dark-line rounded-m font-mono text-[11px] text-bg whitespace-pre-wrap">
-{`Nombre: appointment_reminder
-Categoría: Utility
-Idioma: es_AR
-Cuerpo:
-Hola {{1}}, te recordamos tu turno mañana a las {{2}} en {{3}} con {{4}}. Si no podés venir, cancelalo desde la app.`}
-        </div>
-        <p className="mt-2.5 text-[11px]">
-          Variables: <span className="text-bg">{`{{1}}`}</span> nombre del cliente · <span className="text-bg">{`{{2}}`}</span> hora · <span className="text-bg">{`{{3}}`}</span> nombre del shop · <span className="text-bg">{`{{4}}`}</span> nombre del barbero.
-        </p>
-        <p className="mt-2.5 text-[11px]">
-          La aprobación de Meta tarda entre 5 minutos y 24 hs. Una vez aprobado, el cron de recordatorios
-          (que ya se ejecuta diariamente para email) va a mandar también el WhatsApp.
-        </p>
+        <div className="font-semibold text-bg mb-1.5">Qué incluye</div>
+        <ul className="list-disc pl-4 flex flex-col gap-1">
+          <li>Recordatorio automático el día anterior al turno.</li>
+          <li>Mensaje con nombre del cliente, hora, barbería y barbero.</li>
+          <li>Link directo para que el cliente cancele desde la app.</li>
+        </ul>
       </div>
     </div>
   );
@@ -1258,45 +1128,58 @@ Hola {{1}}, te recordamos tu turno mañana a las {{2}} en {{3}} con {{4}}. Si no
 // ─── Facturación section (TusFacturasAPP / AFIP) ─────────────────────────────
 
 function FacturacionSection({
-  settings, onToast
+  settings, shopName, onToast
 }: {
   settings: ShopInvoicingSettings | null;
+  shopName: string;
   onToast: (t: { tone: 'success' | 'error'; text: string }) => void;
 }) {
   const [pending, start] = useTransition();
-  const [apiKey, setApiKey] = useState(settings?.api_key || '');
-  const [apiToken, setApiToken] = useState(settings?.api_token || '');
-  const [userToken, setUserToken] = useState(settings?.user_token || '');
+  // API credentials se mantienen en estado pero no se muestran en la UI —
+  // las gestiona Di Digital Studio directamente.
+  const [apiKey]     = useState(settings?.api_key || '');
+  const [apiToken]   = useState(settings?.api_token || '');
+  const [userToken]  = useState(settings?.user_token || '');
   const [cuit, setCuit] = useState(settings?.cuit || '');
   const [razonSocial, setRazonSocial] = useState(settings?.razon_social || '');
   const [puntoVenta, setPuntoVenta] = useState(settings?.punto_venta || 1);
   const [condicionIva, setCondicionIva] = useState<IvaCondition | ''>(settings?.condicion_iva || '');
   const [isActive, setIsActive] = useState(Boolean(settings?.is_active));
-  const [showSecrets, setShowSecrets] = useState(false);
 
-  const save = () => {
+  const saveFiscal = () => {
     start(async () => {
       const r = await upsertShopInvoicingSettings({
-        api_key: apiKey.trim() || '',
-        api_token: apiToken.trim() || '',
-        user_token: userToken.trim() || '',
-        cuit: cuit.trim() || '',
-        razon_social: razonSocial.trim() || '',
+        api_key: apiKey,
+        api_token: apiToken,
+        user_token: userToken,
+        cuit: cuit.trim(),
+        razon_social: razonSocial.trim(),
         punto_venta: puntoVenta,
         condicion_iva: condicionIva || undefined,
         is_active: isActive
       });
       if (r?.error) onToast({ tone: 'error', text: r.error });
-      else onToast({ tone: 'success', text: 'Configuración de facturación guardada' });
+      else onToast({ tone: 'success', text: 'Datos fiscales guardados' });
     });
   };
 
   const toggleActive = () => {
-    if (!isActive && (!apiKey.trim() || !apiToken.trim() || !userToken.trim() || !cuit.trim() || !condicionIva)) {
-      onToast({ tone: 'error', text: 'Completá credenciales, CUIT y condición de IVA antes de activar' });
+    if (!isActive && (!cuit.trim() || !condicionIva)) {
+      onToast({ tone: 'error', text: 'Completá el CUIT y la condición frente al IVA antes de activar.' });
       return;
     }
-    setIsActive(v => !v);
+    const newActive = !isActive;
+    setIsActive(newActive);
+    start(async () => {
+      const r = await upsertShopInvoicingSettings({
+        api_key: apiKey, api_token: apiToken, user_token: userToken,
+        cuit: cuit.trim(), razon_social: razonSocial.trim(),
+        punto_venta: puntoVenta, condicion_iva: condicionIva || undefined,
+        is_active: newActive
+      });
+      if (r?.error) { setIsActive(!newActive); onToast({ tone: 'error', text: r.error }); }
+      else onToast({ tone: 'success', text: newActive ? 'Facturación activada' : 'Facturación desactivada' });
+    });
   };
 
   return (
@@ -1312,14 +1195,18 @@ function FacturacionSection({
           <button
             type="button"
             onClick={toggleActive}
-            className={`text-[11px] px-3 py-2 rounded-m font-semibold transition ${isActive ? 'bg-bg text-ink' : 'bg-accent text-white'}`}>
-            {isActive ? 'Desactivar' : 'Activar'}
+            disabled={pending}
+            className={`text-[11px] px-3 py-2 rounded-m font-semibold transition disabled:opacity-50 ${isActive ? 'bg-bg text-ink' : 'bg-accent text-white'}`}>
+            {pending ? '…' : isActive ? 'Desactivar' : 'Activar'}
           </button>
         </div>
       </div>
 
       <div className="bg-dark-card border border-dark-line rounded-xl p-4 flex flex-col gap-2.5">
-        <div className="font-mono text-[10px] tracking-[2px] text-dark-muted">DATOS FISCALES</div>
+        <div className="font-mono text-[10px] tracking-[2px] text-dark-muted">TUS DATOS FISCALES</div>
+        <div className="text-[12px] text-dark-muted">
+          Completá tus datos. Los usamos para emitir comprobantes a tu nombre ante AFIP.
+        </div>
         <div className="grid grid-cols-2 gap-2">
           <Field label="CUIT">
             <input
@@ -1349,76 +1236,59 @@ function FacturacionSection({
           <select
             value={condicionIva}
             onChange={e => setCondicionIva((e.target.value as IvaCondition) || '')}
-            className="bg-transparent text-bg w-full outline-none text-[14px]">
-            <option value="">Elegí una opción</option>
-            <option value="RI">Responsable Inscripto</option>
-            <option value="MONOTRIBUTO">Monotributo</option>
-            <option value="EXENTO">Exento</option>
+            className="bg-dark-card text-bg w-full outline-none text-[14px]">
+            <option value="" className="bg-dark-card">Elegí una opción</option>
+            <option value="RI" className="bg-dark-card">Responsable Inscripto</option>
+            <option value="MONOTRIBUTO" className="bg-dark-card">Monotributo</option>
+            <option value="EXENTO" className="bg-dark-card">Exento</option>
           </select>
         </Field>
-      </div>
-
-      <div className="bg-dark-card border border-dark-line rounded-xl p-4 flex flex-col gap-2.5">
-        <div className="flex items-center justify-between">
-          <div className="font-mono text-[10px] tracking-[2px] text-dark-muted">CREDENCIALES TUSFACTURAS</div>
-          <button
-            type="button"
-            onClick={() => setShowSecrets(v => !v)}
-            className="text-[10px] text-dark-muted hover:text-bg transition uppercase tracking-[1px]">
-            {showSecrets ? 'Ocultar' : 'Ver'}
-          </button>
-        </div>
-        <div className="text-[12px] text-dark-muted leading-relaxed">
-          Creá tu cuenta gratuita en <span className="font-mono text-bg">tusfacturas.app</span> y
-          generá los tokens en <span className="font-mono text-bg">Configuración → API → Generar credenciales</span>.
-          Los guardamos cifrados y solo los usamos para emitir facturas a tu nombre ante AFIP.
-        </div>
-
-        <Field label="API key">
-          <input
-            type={showSecrets ? 'text' : 'password'}
-            value={apiKey}
-            onChange={e => setApiKey(e.target.value)}
-            placeholder="Tu API key"
-            className="bg-transparent text-bg w-full outline-none font-mono text-[13px]" />
-        </Field>
-        <Field label="API token">
-          <input
-            type={showSecrets ? 'text' : 'password'}
-            value={apiToken}
-            onChange={e => setApiToken(e.target.value)}
-            placeholder="Tu API token"
-            className="bg-transparent text-bg w-full outline-none font-mono text-[13px]" />
-        </Field>
-        <Field label="User token">
-          <input
-            type={showSecrets ? 'text' : 'password'}
-            value={userToken}
-            onChange={e => setUserToken(e.target.value)}
-            placeholder="Tu user token"
-            className="bg-transparent text-bg w-full outline-none font-mono text-[13px]" />
-        </Field>
-
         <div className="flex gap-2 mt-1">
           <button
             type="button"
-            onClick={save}
+            onClick={saveFiscal}
             disabled={pending}
             className="bg-accent text-white px-4 py-2.5 rounded-m text-[13px] font-semibold disabled:opacity-50 active:scale-[0.97] transition">
-            {pending ? 'Guardando…' : 'Guardar configuración'}
+            {pending ? 'Guardando…' : 'Guardar datos fiscales'}
           </button>
         </div>
       </div>
+
+      <ContactDiDigital feature="Facturación AFIP" shopName={shopName} />
 
       <div className="bg-dark-card border border-dark-line rounded-xl p-4 text-[12px] text-dark-muted leading-relaxed">
         <div className="font-semibold text-bg mb-1.5">Cómo funciona</div>
         <ol className="list-decimal pl-4 flex flex-col gap-1">
-          <li>Cargá tus datos fiscales y las credenciales de TusFacturas.</li>
-          <li>Activá el módulo. Te validamos las credenciales contra TusFacturas antes de guardar.</li>
-          <li>En <span className="text-bg">Caja</span>, cada cobro tendrá un botón <span className="text-bg">&quot;Facturar&quot;</span>. Pedí los datos del cliente (o dejalo como Consumidor Final), y emitimos la factura A/B/C según corresponda.</li>
+          <li>Completá tus datos fiscales arriba y contactanos para activar el módulo.</li>
+          <li>En <span className="text-bg">Caja</span>, cada cobro tendrá un botón <span className="text-bg">&quot;Facturar&quot;</span>. Pedís los datos del cliente (o dejalo como Consumidor Final) y emitimos la factura A/B/C según corresponda.</li>
           <li>El PDF del comprobante queda disponible para descargar o reenviar al cliente.</li>
         </ol>
       </div>
+    </div>
+  );
+}
+
+// ─── Contacto Di Digital Studio ──────────────────────────────────────────────
+
+function ContactDiDigital({ feature, shopName }: { feature: string; shopName: string }) {
+  const subject = encodeURIComponent(`Activar ${feature} — ${shopName}`);
+  const body = encodeURIComponent(
+    `Hola Di Digital Studio,\n\nQuiero activar la integración de ${feature} para mi barbería "${shopName}" en TurnosBarbería.\n\n¿Cómo seguimos?\n\nGracias.`
+  );
+  return (
+    <div className="bg-dark-card border border-dark-line rounded-xl p-4 flex flex-col gap-2.5">
+      <div className="font-mono text-[10px] tracking-[2px] text-dark-muted">CONFIGURACIÓN TÉCNICA</div>
+      <div className="text-[13px] text-bg">
+        Esta integración la configuramos nosotros para vos.
+      </div>
+      <div className="text-[12px] text-dark-muted leading-relaxed">
+        Escribinos con el botón de abajo y te la dejamos activa en el día. Las credenciales y la configuración técnica son privadas y las gestionamos directamente desde Di Digital Studio.
+      </div>
+      <a
+        href={`mailto:hola@didigitalstudio.com?subject=${subject}&body=${body}`}
+        className="self-start inline-flex items-center gap-2 bg-accent text-white px-4 py-2.5 rounded-m text-[13px] font-semibold hover:opacity-90 active:scale-[0.97] transition">
+        Contactar Di Digital Studio
+      </a>
     </div>
   );
 }

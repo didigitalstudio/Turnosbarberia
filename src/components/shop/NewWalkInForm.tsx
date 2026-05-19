@@ -75,9 +75,9 @@ export function NewWalkInForm({
             <select
               value={serviceId}
               onChange={(e) => setServiceId(e.target.value)}
-              className="bg-transparent text-bg text-[15px] w-full outline-none">
+              className="bg-dark-card text-bg text-[15px] w-full outline-none">
               {services.map(s => (
-                <option key={s.id} value={s.id} className="bg-dark">
+                <option key={s.id} value={s.id} className="bg-dark-card">
                   {s.name} · {s.duration_mins}min
                 </option>
               ))}
@@ -88,9 +88,9 @@ export function NewWalkInForm({
             <select
               value={barberId}
               onChange={(e) => setBarberId(e.target.value)}
-              className="bg-transparent text-bg text-[15px] w-full outline-none">
+              className="bg-dark-card text-bg text-[15px] w-full outline-none">
               {barbers.map(b => (
-                <option key={b.id} value={b.id} className="bg-dark">{b.name}</option>
+                <option key={b.id} value={b.id} className="bg-dark-card">{b.name}</option>
               ))}
             </select>
           </Field>

@@ -642,7 +642,7 @@ function Select({ label, value, onChange, children }: { label: string; value: st
     <label className="bg-dark border border-dark-line rounded-m px-3 py-2 block focus-within:border-bg/30 transition">
       <span className="block text-[10px] text-dark-muted uppercase tracking-[1.5px] mb-0.5">{label}</span>
       <select value={value} onChange={e => onChange(e.target.value)}
-        className="bg-transparent text-bg w-full outline-none text-[13px]">
+        className="bg-dark text-bg w-full outline-none text-[13px]">
         {children}
       </select>
     </label>
