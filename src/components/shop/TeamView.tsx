@@ -20,8 +20,8 @@ export function TeamView({
   startOfWeek: string;
   todayISO: string;
   tomorrowISO: string;
-  /** Stats del mes actual por barbero — cortes completados y revenue de servicios. */
-  monthStats?: Record<string, { count: number; revenue: number }>;
+  /** Stats del mes actual por barbero — cortes completados, revenue, no-shows y servicio top. */
+  monthStats?: Record<string, { count: number; revenue: number; topService: string | null; showPct: number | null }>;
 }) {
   const start = new Date(startOfWeek);
   const todayDate = new Date(todayISO);
@@ -78,7 +78,16 @@ export function TeamView({
 
         const occupancy = Math.min(100, Math.round((weekCount * 100) / (SLOTS_PER_DAY * working.size || 1)));
 
-        const month = monthStats?.[b.id] || { count: 0, revenue: 0 };
+        // Día más cargado esta semana
+        const busiestDayIdx = perDay.indexOf(Math.max(...perDay));
+        const busiestDay = weekCount > 0 ? ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'][busiestDayIdx] : '--';
+
+        // Hora más pedida esta semana (de los turnos del barbero)
+        const hourCount = Array(24).fill(0);
+        for (const a of barberAppts) hourCount[new Date(a.starts_at).getHours()]++;
+        const busiestHour = weekCount > 0 ? `${hourCount.indexOf(Math.max(...hourCount))}:00` : '--';
+
+        const month = monthStats?.[b.id] || { count: 0, revenue: 0, topService: null, showPct: null };
 
         return (
           <div key={b.id} className="bg-dark-card border border-dark-line rounded-2xl px-4 py-3.5 mb-2.5">
@@ -99,6 +108,19 @@ export function TeamView({
               <Stat l="Semana"   v={weekCount}/>
               <Stat l="Ocupación" v={`${occupancy}%`}/>
             </div>
+
+            <div className="flex gap-2 mt-2">
+              <Stat l="Presentismo" v={month.showPct !== null ? `${month.showPct}%` : '--'}/>
+              <Stat l="Día pico"    v={busiestDay}/>
+              <Stat l="Hora pico"   v={busiestHour}/>
+            </div>
+
+            {month.topService && (
+              <div className="mt-2 bg-dark rounded-s px-2.5 py-2 flex items-center gap-2">
+                <div className="text-[9px] text-dark-muted uppercase tracking-[1px] shrink-0">Servicio top</div>
+                <div className="text-[12px] text-bg font-medium truncate">{month.topService}</div>
+              </div>
+            )}
 
             <CommissionPanel
               barber={b}
