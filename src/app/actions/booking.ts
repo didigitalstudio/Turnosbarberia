@@ -391,22 +391,41 @@ export async function cancelAppointment(id: string) {
       // si es parcial, 'partial_refund'; si es 0, sigue 'paid' pero el turno
       // queda cancelado igual.
       if (refundAmount > 0 && appt.payment_provider === 'mercadopago' && appt.payment_external_id) {
-        try {
-          const { data: settings } = await admin
-            .from('shop_payment_settings')
-            .select('mp_access_token, is_active')
-            .eq('shop_id', appt.shop_id)
-            .maybeSingle<{ mp_access_token: string | null; is_active: boolean }>();
-          if (settings?.is_active && settings.mp_access_token) {
-            const { refundMpPayment } = await import('@/lib/mercadopago');
-            await refundMpPayment(settings.mp_access_token, appt.payment_external_id, refundAmount);
-            newPaymentStatus = refundAmount >= paid ? 'refunded' : 'partial_refund';
-          } else {
+        // Idempotencia: marcamos refund_pending ANTES de llamar a MP. Si el
+        // call de MP succeed pero el update siguiente falla, el segundo intento
+        // ve refund_pending y NO repite el refund (MP igual deduplica por
+        // idempotency-key, pero defensa en profundidad).
+        const { error: lockErr } = await admin
+          .from('appointments')
+          .update({ payment_status: 'refund_pending' })
+          .eq('id', id)
+          .eq('payment_status', 'paid');
+        if (lockErr) {
+          refundError = 'No pudimos iniciar el reembolso. Probá de nuevo.';
+        } else {
+          try {
+            const { data: settings } = await admin
+              .from('shop_payment_settings')
+              .select('mp_access_token, is_active')
+              .eq('shop_id', appt.shop_id)
+              .maybeSingle<{ mp_access_token: string | null; is_active: boolean }>();
+            if (settings?.is_active && settings.mp_access_token) {
+              const { refundMpPayment } = await import('@/lib/mercadopago');
+              // Idempotency key determinístico: dos cancel sobre el mismo
+              // appointment van a producir el mismo key → MP devuelve la misma
+              // respuesta sin emitir un segundo refund.
+              const idempotencyKey = `${appt.id}-cancel-${Math.round(refundAmount)}`;
+              await refundMpPayment(settings.mp_access_token, appt.payment_external_id, refundAmount, idempotencyKey);
+              newPaymentStatus = refundAmount >= paid ? 'refunded' : 'partial_refund';
+            } else {
+              refundError = 'No pudimos procesar el reembolso automáticamente. El dueño te va a contactar.';
+              newPaymentStatus = 'paid'; // revertimos el lock: el dueño hace el refund manual
+            }
+          } catch (e) {
+            console.error('[cancelAppointment] MP refund failed:', e);
             refundError = 'No pudimos procesar el reembolso automáticamente. El dueño te va a contactar.';
+            newPaymentStatus = 'paid'; // revertimos el lock
           }
-        } catch (e) {
-          console.error('[cancelAppointment] MP refund failed:', e);
-          refundError = 'No pudimos procesar el reembolso automáticamente. El dueño te va a contactar.';
         }
       } else if (refundAmount === 0) {
         // El reembolso da 0 (pagó exactamente la seña dura) → no llamamos a MP

@@ -15,6 +15,7 @@ export type PaymentStatus =
   | 'not_required'
   | 'pending'
   | 'paid'
+  | 'refund_pending'
   | 'refunded'
   | 'partial_refund'
   | 'expired';
