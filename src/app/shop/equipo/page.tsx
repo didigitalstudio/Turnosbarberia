@@ -38,22 +38,35 @@ export default async function ShopTeamPage() {
     supabase.from('schedules').select('*').eq('shop_id', shop.id),
     supabase
       .from('appointments')
-      .select('id, barber_id, status, services(price)')
+      .select('id, barber_id, status, services(name, price)')
       .eq('shop_id', shop.id)
-      .eq('status', 'completed')
+      .in('status', ['completed', 'no_show'])
       .gte('starts_at', startOfMonth.toISOString())
       .lt('starts_at', startOfNextMonth.toISOString())
   ]);
 
-  // Agregamos por barbero: cantidad de cortes y revenue del mes.
-  const monthByBarber = new Map<string, { count: number; revenue: number }>();
+  // Agrega por barbero: cortes completados, revenue, no-shows y servicio más pedido.
+  const monthByBarber = new Map<string, { count: number; revenue: number; noShow: number; svcCount: Record<string, number> }>();
   for (const row of (monthAppts as any[]) || []) {
-    const acc = monthByBarber.get(row.barber_id) || { count: 0, revenue: 0 };
-    acc.count += 1;
-    acc.revenue += Number(row.services?.price || 0);
+    const acc = monthByBarber.get(row.barber_id) || { count: 0, revenue: 0, noShow: 0, svcCount: {} };
+    if (row.status === 'completed') {
+      acc.count += 1;
+      acc.revenue += Number(row.services?.price || 0);
+      const svcName: string = row.services?.name || 'Otro';
+      acc.svcCount[svcName] = (acc.svcCount[svcName] || 0) + 1;
+    } else if (row.status === 'no_show') {
+      acc.noShow += 1;
+    }
     monthByBarber.set(row.barber_id, acc);
   }
-  const monthStats = Object.fromEntries(monthByBarber);
+  const monthStats = Object.fromEntries(
+    Array.from(monthByBarber.entries()).map(([id, d]) => {
+      const topService = Object.entries(d.svcCount).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+      const totalTracked = d.count + d.noShow;
+      const showPct = totalTracked > 0 ? Math.round((d.count / totalTracked) * 100) : null;
+      return [id, { count: d.count, revenue: d.revenue, topService, showPct }];
+    })
+  );
 
   return (
     <main className="flex-1 flex flex-col mx-auto w-full max-w-[440px] md:max-w-none md:mx-0">
