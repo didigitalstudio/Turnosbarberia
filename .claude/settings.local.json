@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs ls -lh)",
+      "Bash(git reset *)",
+      "mcp__mercadopago__application_list"
+    ]
+  }
+}
