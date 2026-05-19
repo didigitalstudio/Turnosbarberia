@@ -237,11 +237,13 @@ export async function createBooking(input: z.infer<typeof BookingSchema>) {
     }
   }
 
-  // Atar el cliente a esta barbería en su PRIMERA reserva. A partir de acá,
-  // el login lo manda derecho a `/{slug}` sin que tenga que recordar la URL.
-  // Si el user ya tiene shop_id (vino de otro shop) no lo pisamos: queda con
-  // el primero. Si is_admin = true (es dueño), tampoco — el shop_id del
-  // dueño es su panel, no una barbería de cliente.
+  // Vincular el cliente con esta barbería en client_shops (relación N:M).
+  // Si nunca había reservado en ningún shop, esta queda como is_primary=true
+  // y el trigger la sincroniza con profile.shop_id (compat con código viejo
+  // que sigue leyendo profile.shop_id). Si ya tiene otras vinculaciones, esta
+  // entra como is_primary=false — el cliente decide después cuál usar de
+  // "casa" desde su perfil.
+  //
   // También guardamos el teléfono del profile si todavía no lo tenía (legacy
   // users registrados antes de que el campo fuera obligatorio).
   const { data: prof } = await admin
@@ -249,13 +251,23 @@ export async function createBooking(input: z.infer<typeof BookingSchema>) {
     .select('is_admin, shop_id, phone')
     .eq('id', user.id)
     .maybeSingle<{ is_admin: boolean; shop_id: string | null; phone: string | null }>();
-  if (prof) {
-    const patch: Record<string, unknown> = {};
-    if (!prof.is_admin && !prof.shop_id) patch.shop_id = shop.id;
-    if (!prof.phone && data.customerPhone) patch.phone = data.customerPhone;
-    if (Object.keys(patch).length > 0) {
-      await admin.from('profiles').update(patch).eq('id', user.id);
+  if (prof && !prof.is_admin) {
+    const { count: existingLinks } = await admin
+      .from('client_shops')
+      .select('shop_id', { count: 'exact', head: true })
+      .eq('profile_id', user.id);
+    const isFirstShop = (existingLinks || 0) === 0;
+    await admin
+      .from('client_shops')
+      .upsert(
+        { profile_id: user.id, shop_id: shop.id, is_primary: isFirstShop },
+        { onConflict: 'profile_id,shop_id', ignoreDuplicates: true }
+      );
+    if (!prof.phone && data.customerPhone) {
+      await admin.from('profiles').update({ phone: data.customerPhone }).eq('id', user.id);
     }
+  } else if (prof && !prof.phone && data.customerPhone) {
+    await admin.from('profiles').update({ phone: data.customerPhone }).eq('id', user.id);
   }
 
   // Whitelist cookie para que invitados puedan ver la página de confirmación.
