@@ -312,7 +312,7 @@ async function main() {
       type: 'service',
       description: s1.name,
       amount: s1.price,
-      payment_method: 'mercadopago',
+      payment_method: 'transferencia',
       customer_name: CLIENT.name
     },
     {
