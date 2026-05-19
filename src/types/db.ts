@@ -158,6 +158,62 @@ export type ShopMember = {
   created_at: string;
 };
 
+// ─── Facturación AFIP ───────────────────────────────────────────────────────
+
+export type InvoicingProvider = 'tusfacturas';
+export type IvaCondition = 'RI' | 'MONOTRIBUTO' | 'EXENTO';
+export type ClienteCondicionIva = IvaCondition | 'CF';
+export type TipoDoc = 'CUIT' | 'DNI' | 'CF';
+export type InvoiceStatus = 'pending' | 'emitted' | 'error' | 'cancelled';
+
+export type ShopInvoicingSettings = {
+  shop_id: string;
+  provider: InvoicingProvider;
+  api_key: string | null;
+  api_token: string | null;
+  user_token: string | null;
+  cuit: string | null;
+  razon_social: string | null;
+  punto_venta: number;
+  condicion_iva: IvaCondition | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type InvoiceClienteData = {
+  tipo_doc?: TipoDoc;
+  nro_doc?: string;
+  razon_social?: string;
+  condicion_iva?: ClienteCondicionIva;
+  email?: string;
+  domicilio?: string;
+};
+
+export type Invoice = {
+  id: string;
+  shop_id: string;
+  sale_id: string | null;
+  appointment_id: string | null;
+  tipo_comprobante: string;
+  punto_venta: number;
+  numero: number | null;
+  cae: string | null;
+  cae_vencimiento: string | null;
+  monto_total: number;
+  monto_neto: number | null;
+  monto_iva: number | null;
+  cliente_data: InvoiceClienteData;
+  status: InvoiceStatus;
+  pdf_url: string | null;
+  external_id: string | null;
+  provider: InvoicingProvider | string;
+  error_msg: string | null;
+  emitida_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type Database = {
   public: {
     Tables: {
@@ -171,6 +227,8 @@ export type Database = {
       sales: { Row: Sale; Insert: Partial<Sale>; Update: Partial<Sale> };
       expenses: { Row: Expense; Insert: Partial<Expense>; Update: Partial<Expense> };
       shop_members: { Row: ShopMember; Insert: Partial<ShopMember>; Update: Partial<ShopMember> };
+      shop_invoicing_settings: { Row: ShopInvoicingSettings; Insert: Partial<ShopInvoicingSettings>; Update: Partial<ShopInvoicingSettings> };
+      invoices: { Row: Invoice; Insert: Partial<Invoice>; Update: Partial<Invoice> };
     };
   };
 };

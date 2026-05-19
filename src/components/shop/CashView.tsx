@@ -6,13 +6,16 @@ import { Stripe } from '@/components/shared/Stripe';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { Toast } from '@/components/shared/Toast';
 import { money } from '@/lib/format';
-import type { Sale, Product, Expense, PaymentMethod } from '@/types/db';
+import type { Sale, Product, Expense, PaymentMethod, TipoDoc, ClienteCondicionIva } from '@/types/db';
 import {
   recordAppointmentSale,
   recordWalkInSale,
   recordProductSale,
   recordExpense
 } from '@/app/actions/caja';
+import { emitInvoice } from '@/app/actions/invoicing';
+
+export type InvoiceRef = { id: string; pdf_url: string | null; numero: number | null; tipo: string };
 
 type ApptLite = {
   id: string;
@@ -27,7 +30,8 @@ type ApptLite = {
 };
 
 export function CashView({
-  sales, products, expenses, todayAppointments, date, todayDate
+  sales, products, expenses, todayAppointments, date, todayDate,
+  invoicingActive, invoicedSales
 }: {
   sales: Sale[];
   products: Product[];
@@ -37,9 +41,14 @@ export function CashView({
   date: string;
   /** Hoy en TZ del shop (YYYY-MM-DD). Se usa para etiquetar y para el límite del input. */
   todayDate: string;
+  /** Si la facturación AFIP está habilitada y configurada para este shop. */
+  invoicingActive?: boolean;
+  /** Map sale_id → invoice emitida (status='emitted'). */
+  invoicedSales?: Record<string, InvoiceRef>;
 }) {
   const router = useRouter();
   const [modal, setModal] = useState<null | 'sale' | 'expense'>(null);
+  const [invoiceFor, setInvoiceFor] = useState<Sale | null>(null);
   const [toast, setToast] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
 
   const ingresos = useMemo(() => sales.reduce((s, x) => s + Number(x.amount || 0), 0), [sales]);
@@ -137,7 +146,13 @@ export function CashView({
           description="Cuando cobres un servicio o vendas un producto, va a aparecer acá."
         />
       ) : (
-        <SalesList sales={sales} products={products} />
+        <SalesList
+          sales={sales}
+          products={products}
+          invoicingActive={invoicingActive}
+          invoicedSales={invoicedSales}
+          onInvoice={setInvoiceFor}
+        />
       )}
 
       {/* Gastos */}
@@ -166,13 +181,29 @@ export function CashView({
           onError={(text) => setToast({ tone: 'error', text })}
         />
       )}
+      {invoiceFor && (
+        <InvoiceModal
+          sale={invoiceFor}
+          onClose={() => setInvoiceFor(null)}
+          onDone={(text) => { setInvoiceFor(null); router.refresh(); setToast({ tone: 'success', text }); }}
+          onError={(text) => setToast({ tone: 'error', text })}
+        />
+      )}
     </div>
   );
 }
 
 // ─── Lists ───────────────────────────────────────────────────────────────────
 
-function SalesList({ sales, products }: { sales: Sale[]; products: Product[] }) {
+function SalesList({
+  sales, products, invoicingActive, invoicedSales, onInvoice
+}: {
+  sales: Sale[];
+  products: Product[];
+  invoicingActive?: boolean;
+  invoicedSales?: Record<string, InvoiceRef>;
+  onInvoice?: (sale: Sale) => void;
+}) {
   const label = (s: Sale) => {
     if (s.type === 'product') {
       return products.find(p => p.id === s.product_id)?.name || s.description || 'Producto';
@@ -197,7 +228,22 @@ function SalesList({ sales, products }: { sales: Sale[]; products: Product[] }) 
                 {s.customer_name ? ` · ${s.customer_name}` : ''} · {labelMethod(s.payment_method)}
               </div>
             </div>
-            <div className="font-mono text-[13px] font-semibold text-bg">{money(Number(s.amount))}</div>
+            <div className="flex flex-col items-end gap-0.5">
+              <div className="font-mono text-[13px] font-semibold text-bg">{money(Number(s.amount))}</div>
+              {(() => {
+                const inv = invoicedSales?.[s.id];
+                if (inv) return inv.pdf_url
+                  ? <a href={inv.pdf_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-accent underline whitespace-nowrap">Fact. {inv.tipo} {inv.numero}</a>
+                  : <span className="text-[10px] text-dark-muted whitespace-nowrap">Fact. {inv.tipo} {inv.numero}</span>;
+                if (invoicingActive) return (
+                  <button type="button" onClick={() => onInvoice?.(s)}
+                    className="text-[10px] text-accent border border-accent/30 rounded px-1.5 py-0.5 hover:border-accent transition whitespace-nowrap">
+                    Facturar
+                  </button>
+                );
+                return null;
+              })()}
+            </div>
           </div>
         ))}
       </div>
@@ -206,7 +252,7 @@ function SalesList({ sales, products }: { sales: Sale[]; products: Product[] }) 
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-dark-line bg-dark/40">
-              <Th>HORA</Th><Th>TIPO</Th><Th>DESCRIPCIÓN</Th><Th>CLIENTE</Th><Th>MÉTODO</Th><Th className="text-right">MONTO</Th>
+              <Th>HORA</Th><Th>TIPO</Th><Th>DESCRIPCIÓN</Th><Th>CLIENTE</Th><Th>MÉTODO</Th><Th className="text-right">MONTO</Th><th></th>
             </tr>
           </thead>
           <tbody>
@@ -225,6 +271,21 @@ function SalesList({ sales, products }: { sales: Sale[]; products: Product[] }) 
                 <td className="px-4 py-3 text-[12px] text-dark-muted">{s.customer_name || '—'}</td>
                 <td className="px-4 py-3 text-[12px] text-dark-muted">{labelMethod(s.payment_method)}</td>
                 <td className="px-4 py-3 text-right font-mono text-[13px] font-semibold text-bg whitespace-nowrap">{money(Number(s.amount))}</td>
+                <td className="px-4 py-3 text-right">
+                  {(() => {
+                    const inv = invoicedSales?.[s.id];
+                    if (inv) return inv.pdf_url
+                      ? <a href={inv.pdf_url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-accent underline whitespace-nowrap">Fact. {inv.tipo} {inv.numero}</a>
+                      : <span className="text-[11px] text-dark-muted whitespace-nowrap">Fact. {inv.tipo} {inv.numero}</span>;
+                    if (invoicingActive) return (
+                      <button type="button" onClick={() => onInvoice?.(s)}
+                        className="text-[11px] text-accent border border-accent/30 rounded px-2 py-0.5 hover:border-accent transition whitespace-nowrap">
+                        Facturar
+                      </button>
+                    );
+                    return null;
+                  })()}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -444,6 +505,90 @@ function ExpenseModal({
         <MethodSelect value={method} onChange={setMethod} />
       </div>
       <ModalActions onClose={onClose} onSubmit={submit} pending={pending} submitLabel="Registrar gasto" />
+    </ModalShell>
+  );
+}
+
+function InvoiceModal({
+  sale, onClose, onDone, onError
+}: {
+  sale: Sale;
+  onClose: () => void;
+  onDone: (text: string) => void;
+  onError: (text: string) => void;
+}) {
+  const [pending, start] = useTransition();
+  const [tipoDoc, setTipoDoc] = useState<TipoDoc>('CF');
+  const [nroDoc, setNroDoc] = useState('');
+  const [razonSocial, setRazonSocial] = useState('');
+  const [condicionIva, setCondicionIva] = useState<ClienteCondicionIva>('CF');
+  const [email, setEmail] = useState('');
+  const [enviaPorMail, setEnviaPorMail] = useState(false);
+
+  const submit = () => start(async () => {
+    const r = await emitInvoice({
+      saleId: sale.id,
+      cliente: {
+        tipo_doc: tipoDoc,
+        nro_doc: nroDoc || undefined,
+        razon_social: razonSocial || undefined,
+        condicion_iva: condicionIva,
+        email: email || undefined,
+      },
+      envia_por_mail: enviaPorMail,
+    });
+    if ('error' in r) return onError(r.error);
+    if (r.pdfUrl) window.open(r.pdfUrl, '_blank', 'noopener,noreferrer');
+    onDone(`Factura emitida · CAE ${r.cae}`);
+  });
+
+  return (
+    <ModalShell title="Emitir factura" onClose={onClose}>
+      <div className="flex flex-col gap-2.5">
+        <div className="bg-dark border border-dark-line rounded-m px-3 py-2 text-[12px] text-dark-muted">
+          <span className="text-bg">{sale.description || 'Servicio'}</span>
+          <span className="font-mono font-semibold text-bg ml-2">{money(Number(sale.amount))}</span>
+        </div>
+        <Select label="Tipo de documento" value={tipoDoc} onChange={v => {
+          setTipoDoc(v as TipoDoc);
+          if (v === 'CF') { setNroDoc(''); setRazonSocial(''); setCondicionIva('CF'); }
+        }}>
+          <option value="CF">Consumidor Final (sin datos)</option>
+          <option value="DNI">DNI</option>
+          <option value="CUIT">CUIT</option>
+        </Select>
+        {tipoDoc !== 'CF' && (
+          <TextField
+            label={tipoDoc === 'DNI' ? 'Número de DNI' : 'Número de CUIT'}
+            value={nroDoc}
+            onChange={setNroDoc}
+            placeholder={tipoDoc === 'DNI' ? '12345678' : '20-12345678-9'}
+          />
+        )}
+        {tipoDoc === 'CUIT' && (
+          <TextField label="Razón social" value={razonSocial} onChange={setRazonSocial} placeholder="Nombre o empresa" />
+        )}
+        {tipoDoc !== 'CF' && (
+          <Select label="Condición IVA" value={condicionIva} onChange={v => setCondicionIva(v as ClienteCondicionIva)}>
+            <option value="CF">Consumidor Final</option>
+            <option value="RI">Responsable Inscripto</option>
+            <option value="MONOTRIBUTO">Monotributista</option>
+            <option value="EXENTO">Exento</option>
+          </Select>
+        )}
+        <TextField label="Email del cliente (opcional)" value={email} onChange={setEmail} placeholder="cliente@email.com" />
+        <label className="flex items-center gap-2 text-[13px] text-dark-muted cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={enviaPorMail}
+            disabled={!email}
+            onChange={e => setEnviaPorMail(e.target.checked)}
+            className="w-4 h-4 accent-accent"
+          />
+          Enviar factura por email al cliente
+        </label>
+      </div>
+      <ModalActions onClose={onClose} onSubmit={submit} pending={pending} submitLabel="Emitir factura" />
     </ModalShell>
   );
 }

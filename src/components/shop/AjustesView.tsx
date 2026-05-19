@@ -13,8 +13,9 @@ import {
 import { upsertShopPaymentSettings } from '@/app/actions/payments';
 import { upsertShopWhatsappSettings } from '@/app/actions/whatsapp';
 import { createScheduleBlock, deleteScheduleBlock } from '@/app/actions/schedule-blocks';
+import { upsertShopInvoicingSettings } from '@/app/actions/invoicing';
 import { slugify } from '@/lib/slug';
-import type { Shop, Service, Barber, Schedule } from '@/types/db';
+import type { Shop, Service, Barber, Schedule, IvaCondition } from '@/types/db';
 
 export type ScheduleBlockLite = {
   id: string;
@@ -24,7 +25,7 @@ export type ScheduleBlockLite = {
   reason: string | null;
 };
 
-type Tab = 'shop' | 'services' | 'team' | 'hours' | 'sedes' | 'pagos' | 'whatsapp';
+type Tab = 'shop' | 'services' | 'team' | 'hours' | 'sedes' | 'pagos' | 'whatsapp' | 'facturacion';
 
 export type ShopPaymentSettings = {
   mp_access_token: string | null;
@@ -41,6 +42,17 @@ export type ShopWhatsappSettings = {
   is_active: boolean;
 };
 
+export type ShopInvoicingSettings = {
+  api_key: string | null;
+  api_token: string | null;
+  user_token: string | null;
+  cuit: string | null;
+  razon_social: string | null;
+  punto_venta: number;
+  condicion_iva: IvaCondition | null;
+  is_active: boolean;
+};
+
 const DAYS = [
   { idx: 1, short: 'Lun', long: 'Lunes' },
   { idx: 2, short: 'Mar', long: 'Martes' },
@@ -52,7 +64,7 @@ const DAYS = [
 ];
 
 export function AjustesView({
-  shop, services, barbers, schedules, publicUrl, userShops, paymentSettings, whatsappSettings, scheduleBlocks
+  shop, services, barbers, schedules, publicUrl, userShops, paymentSettings, whatsappSettings, scheduleBlocks, invoicingSettings
 }: {
   shop: Shop;
   services: Service[];
@@ -63,6 +75,7 @@ export function AjustesView({
   paymentSettings: ShopPaymentSettings | null;
   whatsappSettings: ShopWhatsappSettings | null;
   scheduleBlocks: ScheduleBlockLite[];
+  invoicingSettings: ShopInvoicingSettings | null;
 }) {
   const [tab, setTab] = useState<Tab>('shop');
   const [toast, setToast] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
@@ -79,8 +92,8 @@ export function AjustesView({
       <PublicLinkBanner publicUrl={publicUrl} />
 
       {/* Tabs */}
-      <div className="mt-5 flex gap-1 bg-dark-card border border-dark-line rounded-xl p-1 w-full md:max-w-2xl overflow-x-auto no-scrollbar">
-        {(['shop', 'services', 'team', 'hours', 'sedes', 'pagos', 'whatsapp'] as Tab[]).map(t => (
+      <div className="mt-5 flex gap-1 bg-dark-card border border-dark-line rounded-xl p-1 w-full md:max-w-3xl overflow-x-auto no-scrollbar">
+        {(['shop', 'services', 'team', 'hours', 'sedes', 'pagos', 'whatsapp', 'facturacion'] as Tab[]).map(t => (
           <button
             key={t}
             type="button"
@@ -100,6 +113,7 @@ export function AjustesView({
         {tab === 'sedes' && <SedesSection shop={shop} userShops={userShops} onToast={setToast} />}
         {tab === 'pagos' && <PagosSection settings={paymentSettings} onToast={setToast} />}
         {tab === 'whatsapp' && <WhatsappSection settings={whatsappSettings} onToast={setToast} />}
+        {tab === 'facturacion' && <FacturacionSection settings={invoicingSettings} onToast={setToast} />}
       </div>
     </div>
   );
@@ -112,7 +126,8 @@ function tabLabel(t: Tab) {
     : t === 'hours' ? 'Horarios'
     : t === 'sedes' ? 'Sedes'
     : t === 'pagos' ? 'Pagos'
-    : 'WhatsApp';
+    : t === 'whatsapp' ? 'WhatsApp'
+    : 'Facturación';
 }
 
 // ─── Public link banner ──────────────────────────────────────────────────────
@@ -1235,6 +1250,174 @@ Hola {{1}}, te recordamos tu turno mañana a las {{2}} en {{3}} con {{4}}. Si no
           La aprobación de Meta tarda entre 5 minutos y 24 hs. Una vez aprobado, el cron de recordatorios
           (que ya se ejecuta diariamente para email) va a mandar también el WhatsApp.
         </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Facturación section (TusFacturasAPP / AFIP) ─────────────────────────────
+
+function FacturacionSection({
+  settings, onToast
+}: {
+  settings: ShopInvoicingSettings | null;
+  onToast: (t: { tone: 'success' | 'error'; text: string }) => void;
+}) {
+  const [pending, start] = useTransition();
+  const [apiKey, setApiKey] = useState(settings?.api_key || '');
+  const [apiToken, setApiToken] = useState(settings?.api_token || '');
+  const [userToken, setUserToken] = useState(settings?.user_token || '');
+  const [cuit, setCuit] = useState(settings?.cuit || '');
+  const [razonSocial, setRazonSocial] = useState(settings?.razon_social || '');
+  const [puntoVenta, setPuntoVenta] = useState(settings?.punto_venta || 1);
+  const [condicionIva, setCondicionIva] = useState<IvaCondition | ''>(settings?.condicion_iva || '');
+  const [isActive, setIsActive] = useState(Boolean(settings?.is_active));
+  const [showSecrets, setShowSecrets] = useState(false);
+
+  const save = () => {
+    start(async () => {
+      const r = await upsertShopInvoicingSettings({
+        api_key: apiKey.trim() || '',
+        api_token: apiToken.trim() || '',
+        user_token: userToken.trim() || '',
+        cuit: cuit.trim() || '',
+        razon_social: razonSocial.trim() || '',
+        punto_venta: puntoVenta,
+        condicion_iva: condicionIva || undefined,
+        is_active: isActive
+      });
+      if (r?.error) onToast({ tone: 'error', text: r.error });
+      else onToast({ tone: 'success', text: 'Configuración de facturación guardada' });
+    });
+  };
+
+  const toggleActive = () => {
+    if (!isActive && (!apiKey.trim() || !apiToken.trim() || !userToken.trim() || !cuit.trim() || !condicionIva)) {
+      onToast({ tone: 'error', text: 'Completá credenciales, CUIT y condición de IVA antes de activar' });
+      return;
+    }
+    setIsActive(v => !v);
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="bg-dark-card border border-dark-line rounded-xl px-4 py-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <div className="font-mono text-[10px] tracking-[2px] text-dark-muted">FACTURACIÓN AFIP</div>
+            <div className="text-[14px] font-semibold text-bg mt-0.5">
+              {isActive ? 'Activa · podés emitir facturas desde Caja' : 'Inactiva · sin emisión de comprobantes'}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={toggleActive}
+            className={`text-[11px] px-3 py-2 rounded-m font-semibold transition ${isActive ? 'bg-bg text-ink' : 'bg-accent text-white'}`}>
+            {isActive ? 'Desactivar' : 'Activar'}
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-dark-card border border-dark-line rounded-xl p-4 flex flex-col gap-2.5">
+        <div className="font-mono text-[10px] tracking-[2px] text-dark-muted">DATOS FISCALES</div>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="CUIT">
+            <input
+              value={cuit}
+              onChange={e => setCuit(e.target.value.replace(/\D/g, '').slice(0, 11))}
+              placeholder="20123456789"
+              className="bg-transparent text-bg w-full outline-none font-mono text-[14px]" />
+          </Field>
+          <Field label="Punto de venta">
+            <input
+              type="number"
+              min={1}
+              max={99999}
+              value={puntoVenta}
+              onChange={e => setPuntoVenta(Math.max(1, Number(e.target.value) || 1))}
+              className="bg-transparent text-bg w-full outline-none font-mono text-[14px]" />
+          </Field>
+        </div>
+        <Field label="Razón social">
+          <input
+            value={razonSocial}
+            onChange={e => setRazonSocial(e.target.value)}
+            placeholder="Tu Nombre o Razón Social S.A."
+            className="bg-transparent text-bg w-full outline-none text-[14px]" />
+        </Field>
+        <Field label="Condición frente al IVA">
+          <select
+            value={condicionIva}
+            onChange={e => setCondicionIva((e.target.value as IvaCondition) || '')}
+            className="bg-transparent text-bg w-full outline-none text-[14px]">
+            <option value="">Elegí una opción</option>
+            <option value="RI">Responsable Inscripto</option>
+            <option value="MONOTRIBUTO">Monotributo</option>
+            <option value="EXENTO">Exento</option>
+          </select>
+        </Field>
+      </div>
+
+      <div className="bg-dark-card border border-dark-line rounded-xl p-4 flex flex-col gap-2.5">
+        <div className="flex items-center justify-between">
+          <div className="font-mono text-[10px] tracking-[2px] text-dark-muted">CREDENCIALES TUSFACTURAS</div>
+          <button
+            type="button"
+            onClick={() => setShowSecrets(v => !v)}
+            className="text-[10px] text-dark-muted hover:text-bg transition uppercase tracking-[1px]">
+            {showSecrets ? 'Ocultar' : 'Ver'}
+          </button>
+        </div>
+        <div className="text-[12px] text-dark-muted leading-relaxed">
+          Creá tu cuenta gratuita en <span className="font-mono text-bg">tusfacturas.app</span> y
+          generá los tokens en <span className="font-mono text-bg">Configuración → API → Generar credenciales</span>.
+          Los guardamos cifrados y solo los usamos para emitir facturas a tu nombre ante AFIP.
+        </div>
+
+        <Field label="API key">
+          <input
+            type={showSecrets ? 'text' : 'password'}
+            value={apiKey}
+            onChange={e => setApiKey(e.target.value)}
+            placeholder="Tu API key"
+            className="bg-transparent text-bg w-full outline-none font-mono text-[13px]" />
+        </Field>
+        <Field label="API token">
+          <input
+            type={showSecrets ? 'text' : 'password'}
+            value={apiToken}
+            onChange={e => setApiToken(e.target.value)}
+            placeholder="Tu API token"
+            className="bg-transparent text-bg w-full outline-none font-mono text-[13px]" />
+        </Field>
+        <Field label="User token">
+          <input
+            type={showSecrets ? 'text' : 'password'}
+            value={userToken}
+            onChange={e => setUserToken(e.target.value)}
+            placeholder="Tu user token"
+            className="bg-transparent text-bg w-full outline-none font-mono text-[13px]" />
+        </Field>
+
+        <div className="flex gap-2 mt-1">
+          <button
+            type="button"
+            onClick={save}
+            disabled={pending}
+            className="bg-accent text-white px-4 py-2.5 rounded-m text-[13px] font-semibold disabled:opacity-50 active:scale-[0.97] transition">
+            {pending ? 'Guardando…' : 'Guardar configuración'}
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-dark-card border border-dark-line rounded-xl p-4 text-[12px] text-dark-muted leading-relaxed">
+        <div className="font-semibold text-bg mb-1.5">Cómo funciona</div>
+        <ol className="list-decimal pl-4 flex flex-col gap-1">
+          <li>Cargá tus datos fiscales y las credenciales de TusFacturas.</li>
+          <li>Activá el módulo. Te validamos las credenciales contra TusFacturas antes de guardar.</li>
+          <li>En <span className="text-bg">Caja</span>, cada cobro tendrá un botón <span className="text-bg">&quot;Facturar&quot;</span>. Pedí los datos del cliente (o dejalo como Consumidor Final), y emitimos la factura A/B/C según corresponda.</li>
+          <li>El PDF del comprobante queda disponible para descargar o reenviar al cliente.</li>
+        </ol>
       </div>
     </div>
   );

@@ -14,14 +14,26 @@ function isoLocalNow(offsetMinutes = 10): string {
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function NewWalkInForm({ services, barbers }: { services: Svc[]; barbers: Barber[] }) {
+export function NewWalkInForm({
+  services, barbers, defaultDate, defaultTime, defaultBarberId
+}: {
+  services: Svc[];
+  barbers: Barber[];
+  defaultDate?: string;
+  defaultTime?: string;
+  defaultBarberId?: string;
+}) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [serviceId, setServiceId] = useState<string>(services[0]?.id || '');
-  const [barberId, setBarberId] = useState<string>(barbers[0]?.id || '');
+  const [barberId, setBarberId] = useState<string>(
+    (defaultBarberId && barbers.some(b => b.id === defaultBarberId)) ? defaultBarberId : (barbers[0]?.id || '')
+  );
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-  const [when, setWhen] = useState<string>(isoLocalNow(5));
+  const [when, setWhen] = useState<string>(
+    (defaultDate && defaultTime) ? `${defaultDate}T${defaultTime}` : isoLocalNow(5)
+  );
   const [err, setErr] = useState<string | null>(null);
 
   const canSubmit = !!serviceId && !!barberId && name.trim().length >= 2 && !!when && !pending;
