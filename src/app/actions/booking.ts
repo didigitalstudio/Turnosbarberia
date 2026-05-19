@@ -16,8 +16,7 @@ import {
 } from '@/lib/email';
 import { partsInAR } from '@/lib/tz';
 
-const NAME_RE  = /^[\p{L}\s'.-]{2,80}$/u;
-const PHONE_RE = /^[+\d\s()-]{6,30}$/;
+import { NAME_RE, PHONE_RE } from '@/lib/validation';
 
 /**
  * Monto de seña requerido para un servicio. Devuelve 0 si no exige seña.
