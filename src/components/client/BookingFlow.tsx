@@ -97,7 +97,7 @@ export function BookingFlow({
   const stepAnimClass = step > prevStep ? 'step-enter' : step < prevStep ? 'step-enter-back' : '';
 
   return (
-    <main className="min-h-screen flex flex-col">
+    <main className="min-h-screen flex flex-col max-w-2xl w-full mx-auto">
       <header className="px-5 pt-3 pb-3 flex items-center gap-3.5">
         {step === 1 ? (
           <Link href={`/${shopSlug}`} className="w-11 h-11 -ml-1 rounded-l bg-card border border-line grid place-items-center active:scale-95 transition" aria-label="Volver al inicio">

@@ -43,14 +43,15 @@ export default async function ShopHomePage({ params }: { params: { slug: string 
 
   return (
     <main className="min-h-screen flex flex-col">
-      <header className="px-5 pt-3 pb-3 flex items-center justify-between">
+      <header className="px-5 md:px-8 pt-3 md:pt-6 pb-3 flex items-center justify-between max-w-5xl w-full mx-auto">
         <div>
           <div className="text-xs text-muted">Hola,</div>
-          <div className="text-xl font-semibold -tracking-[0.3px]">{greetingName}</div>
+          <div className="text-xl md:text-2xl font-semibold -tracking-[0.3px]">{greetingName}</div>
         </div>
       </header>
 
-      <div className="flex-1 overflow-auto px-5 pb-6">
+      <div className="flex-1 overflow-auto px-5 md:px-8 pb-6 max-w-5xl w-full mx-auto md:grid md:grid-cols-[1.1fr_1fr] md:gap-8">
+        <div>
         {/* Hero / next appointment */}
         {next ? (
           <div className="bg-ink text-bg rounded-3xl px-5 py-5 mt-1 relative overflow-hidden">
@@ -100,9 +101,11 @@ export default async function ShopHomePage({ params }: { params: { slug: string 
             <Icon name="user" size={14}/> Crear cuenta para guardar tu historial
           </Link>
         )}
+        </div>
 
+        <div>
         {/* Services */}
-        <div className="mt-6 flex items-baseline justify-between">
+        <div className="mt-6 md:mt-0 flex items-baseline justify-between">
           <h2 className="font-display text-[22px] -tracking-[0.3px]">Servicios</h2>
           <Link href={`/${slug}/reservar`} className="text-xs text-muted active:opacity-60 transition">Ver todos</Link>
         </div>
@@ -129,18 +132,19 @@ export default async function ShopHomePage({ params }: { params: { slug: string 
         <div className="mt-6 flex items-baseline justify-between">
           <h2 className="font-display text-[22px] -tracking-[0.3px]">Nuestro equipo</h2>
         </div>
-        <div className="flex gap-2.5 mt-3 overflow-x-auto no-scrollbar -mx-5 px-5 pb-1">
+        <div className="flex gap-2.5 mt-3 overflow-x-auto no-scrollbar -mx-5 px-5 md:mx-0 md:px-0 md:grid md:grid-cols-2 md:gap-2.5 md:overflow-visible pb-1">
           {(barbers || []).map(b => (
             <Link
               key={b.id}
               href={`/${slug}/reservar?barber=${b.id}`}
-              className="min-w-[132px] bg-card border border-line rounded-xl p-3.5 text-center active:scale-[0.98] transition"
+              className="min-w-[132px] md:min-w-0 bg-card border border-line rounded-xl p-3.5 text-center active:scale-[0.98] transition"
             >
               <div className="flex justify-center"><Avatar name={b.initials} size={48} hue={b.hue}/></div>
               <div className="text-sm font-medium mt-2.5">{b.name}</div>
               <div className="text-[10px] text-muted mt-0.5">{b.role}</div>
             </Link>
           ))}
+        </div>
         </div>
       </div>
 

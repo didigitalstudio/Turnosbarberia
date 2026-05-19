@@ -90,10 +90,11 @@ export function MyAppointmentsView({ slug, upcoming, history }: { slug: string; 
             )}
 
             {rest.length > 0 && <SectionLabel className="mt-6">MÁS ADELANTE</SectionLabel>}
+            <div className="md:grid md:grid-cols-2 md:gap-2">
             {rest.map(a => {
               const d = new Date(a.starts_at);
               return (
-                <div key={a.id} className="flex items-center gap-3.5 bg-card border border-line rounded-xl px-3.5 py-3 mb-2 transition">
+                <div key={a.id} className="flex items-center gap-3.5 bg-card border border-line rounded-xl px-3.5 py-3 mb-2 md:mb-0 transition">
                   <DateChip date={d} variant="light" />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium truncate">{a.services?.name}</div>
@@ -118,6 +119,7 @@ export function MyAppointmentsView({ slug, upcoming, history }: { slug: string; 
                 </div>
               );
             })}
+            </div>
           </>
         )}
 
