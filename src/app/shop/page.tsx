@@ -4,6 +4,7 @@ import { getAdminShop, getUserShops } from '@/lib/shop-context';
 import { ShopHeader } from '@/components/shop/ShopHeader';
 import { AgendaView } from '@/components/shop/AgendaView';
 import { ShopActivationChecklist } from '@/components/shop/ShopActivationChecklist';
+import { DayOverview } from '@/components/shop/DayOverview';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,7 +48,21 @@ export default async function ShopAgendaPage({ searchParams }: { searchParams: {
     supabase
       .from('sales')
       .select('id', { count: 'exact', head: true })
+      .eq('shop_id', shop.id),
+    // KPIs del día para el DayOverview: traemos los amounts (no count) para
+    // sumarlos client-side. Cantidad de filas chica → no vale la pena un RPC.
+    supabase
+      .from('sales')
+      .select('amount')
       .eq('shop_id', shop.id)
+      .gte('created_at', dayStart.toISOString())
+      .lt('created_at', dayEnd.toISOString()),
+    supabase
+      .from('expenses')
+      .select('amount')
+      .eq('shop_id', shop.id)
+      .gte('paid_at', dayStart.toISOString())
+      .lt('paid_at', dayEnd.toISOString())
   ];
 
   if (view === 'week') {
@@ -64,10 +79,14 @@ export default async function ShopAgendaPage({ searchParams }: { searchParams: {
   }
 
   const results = await Promise.all(queries);
-  const [{ data: appts }, { data: barbers }, { data: schedules }, { count: totalAppts }, { count: totalSales }] = results;
-  const weekAppts = view === 'week' ? (results[5]?.data || []) : [];
+  const [{ data: appts }, { data: barbers }, { data: schedules }, { count: totalAppts }, { count: totalSales }, { data: todaySales }, { data: todayExpenses }] = results;
+  // El query de semana, si existe, queda al final (índice 7 con los KPIs nuevos).
+  const weekAppts = view === 'week' ? (results[7]?.data || []) : [];
 
   const appointments = (appts as any) || [];
+
+  const incomeToday = ((todaySales as any[]) || []).reduce((sum, s) => sum + Number(s.amount || 0), 0);
+  const expensesToday = ((todayExpenses as any[]) || []).reduce((sum, e) => sum + Number(e.amount || 0), 0);
 
   const workingDays: number[] = Array.from(new Set(
     (schedules || [])
@@ -114,18 +133,28 @@ export default async function ShopAgendaPage({ searchParams }: { searchParams: {
           state={checklistState}
         />
       ) : (
-        <AgendaView
-          appointments={appointments}
-          barbers={barbers || []}
-          dayISO={dayISO}
-          workingDays={workingDays.length > 0 ? workingDays : undefined}
-          view={view}
-          weekAppointments={weekAppts as any}
-          weekStartISO={weekStart}
-          schedules={(schedules as any) || []}
-          currentShop={{ id: shop.id, name: shop.name, slug: shop.slug, plan: shop.plan }}
-          userShops={userShops.map(s => ({ id: s.id, name: s.name, slug: s.slug, plan: s.plan }))}
-        />
+        <>
+          {/* Tira de KPIs del día, solo en vista día (en semana no aplica). */}
+          {view === 'day' && (
+            <DayOverview
+              appointments={appointments}
+              totalIncomeToday={incomeToday}
+              totalExpensesToday={expensesToday}
+            />
+          )}
+          <AgendaView
+            appointments={appointments}
+            barbers={barbers || []}
+            dayISO={dayISO}
+            workingDays={workingDays.length > 0 ? workingDays : undefined}
+            view={view}
+            weekAppointments={weekAppts as any}
+            weekStartISO={weekStart}
+            schedules={(schedules as any) || []}
+            currentShop={{ id: shop.id, name: shop.name, slug: shop.slug, plan: shop.plan }}
+            userShops={userShops.map(s => ({ id: s.id, name: s.name, slug: s.slug, plan: s.plan }))}
+          />
+        </>
       )}
     </main>
   );
