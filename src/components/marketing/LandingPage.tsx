@@ -212,7 +212,7 @@ function MockSlot({
 
 /* ---------- Features ---------- */
 
-type IconName = 'calendar' | 'cash' | 'users' | 'scissors' | 'clock' | 'check' | 'phone' | 'mail';
+type IconName = 'calendar' | 'cash' | 'users' | 'scissors' | 'clock' | 'check' | 'phone' | 'mail' | 'bag' | 'star' | 'settings';
 
 function Features() {
   const items: Array<{ icon: IconName; title: string; body: string }> = [
@@ -245,6 +245,11 @@ function Features() {
       icon: 'scissors',
       title: 'Un link único',
       body: 'Compartís tu link por Instagram o WhatsApp. Tus clientes entran, reservan y listo.'
+    },
+    {
+      icon: 'settings',
+      title: 'Diseño personalizable',
+      body: 'Colores, logo y tipografías propias en tu agenda online. Tu marca, no la nuestra.'
     }
   ];
   return (
@@ -257,8 +262,8 @@ function Features() {
           </h2>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-          {items.map((item) => (
-            <FeatureCard key={item.title} icon={item.icon} title={item.title} body={item.body} />
+          {items.map((item, i) => (
+            <FeatureCard key={item.title} icon={item.icon} title={item.title} body={item.body} wide={i === items.length - 1} />
           ))}
         </div>
       </div>
@@ -266,17 +271,19 @@ function Features() {
   );
 }
 
-function FeatureCard({ icon, title, body }: { icon: IconName; title: string; body: string }) {
+function FeatureCard({ icon, title, body, wide }: { icon: IconName; title: string; body: string; wide?: boolean }) {
   return (
-    <div className="rounded-2xl bg-card border border-line p-6 md:p-8 shadow-card">
+    <div className={`rounded-2xl bg-card border border-line p-6 md:p-8 shadow-card${wide ? ' md:col-span-2 md:flex md:items-center md:gap-12' : ''}`}>
       <div
-        className="w-11 h-11 rounded-2xl flex items-center justify-center mb-5"
+        className={`w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0 ${wide ? 'mb-5 md:mb-0' : 'mb-5'}`}
         style={{ background: 'rgba(182,117,76,0.12)', color: '#B6754C' }}
       >
         <Icon name={icon} size={20} />
       </div>
-      <h3 className="font-display text-2xl md:text-3xl leading-tight mb-2">{title}</h3>
-      <p className="text-muted leading-relaxed">{body}</p>
+      <div>
+        <h3 className="font-display text-2xl md:text-3xl leading-tight mb-2">{title}</h3>
+        <p className="text-muted leading-relaxed">{body}</p>
+      </div>
     </div>
   );
 }
@@ -328,6 +335,57 @@ function HowItWorks() {
 
 /* ---------- Pricing ---------- */
 
+const WA_LINK = 'https://wa.me/5491169459990';
+
+const ADDONS: Array<{ icon: IconName; name: string; sub?: string; body: string }> = [
+  {
+    icon: 'cash',
+    name: 'Cobro anticipado',
+    sub: 'MercadoPago',
+    body: 'Cobrá el turno por adelantado. Los clientes pagan al reservar.',
+  },
+  {
+    icon: 'bag',
+    name: 'Facturación electrónica',
+    sub: 'AFIP · TusFacturas',
+    body: 'Emití facturas A, B o C automáticamente al cerrar cada turno.',
+  },
+  {
+    icon: 'phone',
+    name: 'Recordatorios por WhatsApp',
+    body: 'Avisos automáticos antes del turno. Menos ausencias, más ocupación.',
+  },
+  {
+    icon: 'star',
+    name: 'Landing con dominio propio',
+    body: 'Tu barbería en tu dominio. Sin /ruta compartida, con tu-barberia.com.',
+  },
+];
+
+function AddonCard({ icon, name, sub, body }: { icon: IconName; name: string; sub?: string; body: string }) {
+  return (
+    <div className="rounded-2xl bg-card border border-dashed border-line p-6 md:p-7 shadow-card flex flex-col">
+      <div
+        className="w-10 h-10 rounded-xl flex items-center justify-center mb-4 flex-shrink-0"
+        style={{ background: 'rgba(182,117,76,0.10)', color: '#B6754C' }}
+      >
+        <Icon name={icon} size={18} />
+      </div>
+      <div className="font-display text-xl md:text-2xl leading-tight">{name}</div>
+      {sub && <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted mt-1">{sub}</div>}
+      <p className="text-muted text-sm leading-relaxed mt-2 flex-1">{body}</p>
+      <a
+        href={WA_LINK}
+        target="_blank"
+        rel="noreferrer"
+        className="mt-4 inline-flex items-center gap-1.5 text-sm text-ink hover:text-ink/70 transition-colors"
+      >
+        Consultar <Icon name="arrow-right" size={14} />
+      </a>
+    </div>
+  );
+}
+
 function Pricing() {
   return (
     <section id="precios" className="py-16 md:py-24 border-t border-line">
@@ -369,6 +427,18 @@ function Pricing() {
             ]}
             highlight
           />
+        </div>
+
+        <div className="mt-14 md:mt-20">
+          <div className="mb-8 md:mb-10">
+            <div className="font-mono text-xs uppercase tracking-[0.2em] text-muted mb-2">Módulos adicionales</div>
+            <p className="text-muted leading-relaxed max-w-xl">
+              Sumale al plan que elijas los módulos que necesitás. Disponibles a consultar.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-5">
+            {ADDONS.map((a) => <AddonCard key={a.name} {...a} />)}
+          </div>
         </div>
       </div>
     </section>
