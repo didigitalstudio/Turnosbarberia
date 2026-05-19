@@ -62,8 +62,16 @@ export default async function ConfirmationPage({ params }: { params: { slug: str
   const dateLabel = start.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'America/Argentina/Buenos_Aires' }).replace(/\./g, '').toUpperCase();
   const timeLabel = start.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Argentina/Buenos_Aires' });
 
+  const googleMapsKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY;
+  const mapEmbedUrl = shop.address && googleMapsKey
+    ? `https://www.google.com/maps/embed/v1/place?key=${googleMapsKey}&q=${encodeURIComponent(shop.address + ', ' + shop.name)}`
+    : null;
+  const mapsLinkUrl = shop.address
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(shop.address)}`
+    : null;
+
   return (
-    <main className="min-h-screen flex flex-col px-5 pt-5 pb-7">
+    <main className="min-h-screen flex flex-col px-5 md:px-8 pt-5 pb-7 max-w-5xl w-full mx-auto">
       <div className="flex justify-end">
         <Link
           href={`/${params.slug}`}
@@ -157,6 +165,34 @@ export default async function ConfirmationPage({ params }: { params: { slug: str
           />
         </div>
       </article>
+
+      {/* Mapa o link a maps — solo desktop, debajo del ticket */}
+      {mapEmbedUrl ? (
+        <div className="hidden md:block mt-5 rounded-2xl overflow-hidden border border-line">
+          <iframe
+            src={mapEmbedUrl}
+            width="100%"
+            height="240"
+            style={{ border: 0 }}
+            loading="lazy"
+            referrerPolicy="no-referrer-when-downgrade"
+            title={`Mapa de ${shop.name}`}
+          />
+        </div>
+      ) : mapsLinkUrl ? (
+        <a
+          href={mapsLinkUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="hidden md:flex mt-5 bg-card border border-line rounded-2xl px-4 py-3 items-center gap-3 hover:border-ink/30 transition">
+          <Icon name="calendar" size={18} />
+          <div className="flex-1">
+            <div className="text-[13px] font-medium">Cómo llegar</div>
+            <div className="text-[11px] text-muted">{shop.address}</div>
+          </div>
+          <Icon name="arrow-right" size={14} color="#7A766E" />
+        </a>
+      ) : null}
 
       <div className="flex-1" />
 

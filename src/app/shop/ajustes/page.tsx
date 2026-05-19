@@ -17,7 +17,7 @@ export default async function AjustesPage() {
 
   const admin = createAdminClient();
 
-  const [{ data: services }, { data: barbers }, { data: schedules }, userShops, { data: paymentSettings }, { data: whatsappSettings }] = await Promise.all([
+  const [{ data: services }, { data: barbers }, { data: schedules }, userShops, { data: paymentSettings }, { data: whatsappSettings }, { data: scheduleBlocks }] = await Promise.all([
     supabase.from('services').select('*').eq('shop_id', shop.id).order('created_at'),
     supabase.from('barbers').select('*').eq('shop_id', shop.id).order('created_at'),
     supabase.from('schedules').select('*').eq('shop_id', shop.id),
@@ -31,7 +31,13 @@ export default async function AjustesPage() {
       .from('shop_whatsapp_settings')
       .select('phone_number_id, access_token, reminder_template_name, reminder_template_language, is_active')
       .eq('shop_id', shop.id)
-      .maybeSingle()
+      .maybeSingle(),
+    admin
+      .from('schedule_blocks')
+      .select('id, barber_id, starts_at, ends_at, reason')
+      .eq('shop_id', shop.id)
+      .gte('ends_at', new Date().toISOString())
+      .order('starts_at')
   ]);
 
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
@@ -49,6 +55,7 @@ export default async function AjustesPage() {
         userShops={userShops}
         paymentSettings={(paymentSettings as any) || null}
         whatsappSettings={(whatsappSettings as any) || null}
+        scheduleBlocks={(scheduleBlocks as any) || []}
       />
       <form action={signOut} className="px-5 pb-6 md:px-8 md:max-w-3xl md:mx-auto md:w-full">
         <button className="w-full bg-dark-card border border-dark-line text-bg rounded-xl px-4 py-3 text-[13px] font-medium text-left hover:border-bg/30 transition">

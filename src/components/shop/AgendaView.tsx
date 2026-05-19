@@ -796,10 +796,14 @@ function AppointmentCard({
   const isInProgress = appointment.status === 'in_progress' || (now >= startMs && now < endMs && appointment.status !== 'completed' && appointment.status !== 'cancelled');
   const isDone = appointment.status === 'completed';
   const isNoShow = appointment.status === 'no_show';
+  const isPrepaid = appointment.payment_status === 'paid' && Number(appointment.payment_amount || 0) > 0;
   const time = new Date(appointment.starts_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false , timeZone: 'America/Argentina/Buenos_Aires' });
 
   const baseBg = `oklch(0.3 0.04 ${hue})`;
-  const baseBorder = `oklch(0.7 0.1 ${hue})`;
+  // Borde más claro y brillante cuando el cliente ya pagó la seña — el dueño
+  // distingue al instante un turno "asegurado" vs uno todavía no pago.
+  const baseBorder = isPrepaid ? `oklch(0.85 0.18 ${hue})` : `oklch(0.7 0.1 ${hue})`;
+  const borderWidth = isPrepaid ? '4px' : '3px';
 
   // Turnos cerrados (completados / cancelados / no_show) no se mueven —
   // son terminales también del lado del server. Permitir el drag llevaría
@@ -825,7 +829,8 @@ function AppointmentCard({
         style={{
           background: isInProgress ? undefined : baseBg,
           color: isInProgress ? undefined : '#F5F3EE',
-          borderLeft: isInProgress ? undefined : `3px solid ${baseBorder}`,
+          borderLeft: isInProgress ? undefined : `${borderWidth} solid ${baseBorder}`,
+          boxShadow: isPrepaid && !isInProgress ? `inset 0 0 0 1px ${baseBorder}` : undefined,
           touchAction: 'manipulation'
         }}>
         {compact ? (

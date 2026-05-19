@@ -26,7 +26,7 @@ export async function getAvailableSlots(shopId: string, barberId: string, servic
   // cliente nunca pagó la seña.
   await supabase.rpc('release_expired_holds').then(() => null, () => null);
 
-  const [{ data: service }, { data: schedule }, { data: appts }] = await Promise.all([
+  const [{ data: service }, { data: schedule }, { data: appts }, { data: blocks }] = await Promise.all([
     supabase.from('services').select('duration_mins').eq('id', serviceId).eq('shop_id', shopId).single(),
     supabase.from('schedules').select('*')
       .eq('shop_id', shopId)
@@ -39,7 +39,16 @@ export async function getAvailableSlots(shopId: string, barberId: string, servic
       .eq('barber_id', barberId)
       .gte('starts_at', dayStartUTC)
       .lt('starts_at', dayEndUTC)
-      .not('status', 'in', '("cancelled","no_show","expired")')
+      .not('status', 'in', '("cancelled","no_show","expired")'),
+    // Bloqueos de agenda (vacaciones, feriados): pueden afectar al barbero
+    // específico o al shop entero (barber_id IS NULL). Filtramos solo los
+    // que solapan con el día consultado para no traer registros viejos.
+    supabase.from('schedule_blocks')
+      .select('starts_at, ends_at, barber_id')
+      .eq('shop_id', shopId)
+      .lt('starts_at', dayEndUTC)
+      .gt('ends_at', dayStartUTC)
+      .or(`barber_id.eq.${barberId},barber_id.is.null`)
   ]);
 
   if (!service || !schedule || !schedule.is_working) return [];
@@ -64,8 +73,16 @@ export async function getAvailableSlots(shopId: string, barberId: string, servic
       return slotStartMs < aEnd && slotEndMs > aStart;
     });
 
+    // Solapamiento con un bloqueo de agenda (vacaciones/feriados/descansos):
+    // mismo tratamiento que un turno tomado — el slot no se ofrece.
+    const blocked = (blocks || []).some(b => {
+      const bStart = new Date(b.starts_at).getTime();
+      const bEnd = new Date(b.ends_at).getTime();
+      return slotStartMs < bEnd && slotEndMs > bStart;
+    });
+
     const inPast = slotStartMs < Date.now();
-    slots.push({ time: minToHM(t), iso: slotIsoUTC, taken: overlaps || inPast });
+    slots.push({ time: minToHM(t), iso: slotIsoUTC, taken: overlaps || blocked || inPast });
   }
 
   return slots;

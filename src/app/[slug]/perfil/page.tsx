@@ -1,11 +1,12 @@
 import Link from 'next/link';
 import { cookies } from 'next/headers';
 import { notFound, redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { getShopBySlug, LAST_SHOP_COOKIE } from '@/lib/shop-context';
 import { TabBar } from '@/components/client/TabBar';
 import { Icon } from '@/components/shared/Icon';
 import { Avatar } from '@/components/shared/Avatar';
+import { LinkedShopsList } from '@/components/client/LinkedShopsList';
 import { signOut } from '@/app/actions/auth';
 
 export const dynamic = 'force-dynamic';
@@ -31,6 +32,23 @@ export default async function PerfilPage({ params }: { params: { slug: string } 
       name: string | null; email: string | null; phone: string | null; is_admin: boolean;
     }>();
 
+  // Todas las barberías vinculadas al cliente. Usamos admin client porque
+  // necesitamos JOIN con shops.* (RLS de shops sólo devuelve is_active=true,
+  // pero acá queremos mostrar incluso si la sede está temporalmente off).
+  const admin = createAdminClient();
+  const { data: linkedRows } = await admin
+    .from('client_shops')
+    .select('shop_id, is_primary, shops(id, slug, name)')
+    .eq('profile_id', user.id);
+  const linkedShops = ((linkedRows as any[]) || [])
+    .map(r => ({
+      id: r.shops?.id,
+      slug: r.shops?.slug,
+      name: r.shops?.name,
+      is_primary: r.is_primary
+    }))
+    .filter(s => s.id && s.slug && s.name);
+
   const initials = (profile?.name || user.email || 'U')
     .split(' ').map((p: string) => p[0]).join('').slice(0, 2).toUpperCase();
 
@@ -50,18 +68,12 @@ export default async function PerfilPage({ params }: { params: { slug: string } 
           </div>
         </div>
 
-        {/* Barbería section */}
+        {/* Barberías vinculadas */}
         <div className="mt-3 bg-card border border-line rounded-2xl p-4">
-          <div className="font-mono text-[10px] tracking-[2px] text-muted">BARBERÍA</div>
-          <div className="mt-1.5 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-m bg-bg grid place-items-center flex-shrink-0">
-              <Icon name="scissors" size={16}/>
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-[14px] font-semibold truncate">{shop.name}</div>
-              <div className="text-[11px] text-muted font-mono truncate">/{shop.slug}</div>
-            </div>
+          <div className="font-mono text-[10px] tracking-[2px] text-muted">
+            {linkedShops.length > 1 ? `BARBERÍAS (${linkedShops.length})` : 'BARBERÍA'}
           </div>
+          <LinkedShopsList shops={linkedShops} currentSlug={params.slug} />
           <form action={clearLastShopCookie} className="mt-3">
             <button
               type="submit"

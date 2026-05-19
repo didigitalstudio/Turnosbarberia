@@ -12,8 +12,17 @@ import {
 } from '@/app/actions/ajustes';
 import { upsertShopPaymentSettings } from '@/app/actions/payments';
 import { upsertShopWhatsappSettings } from '@/app/actions/whatsapp';
+import { createScheduleBlock, deleteScheduleBlock } from '@/app/actions/schedule-blocks';
 import { slugify } from '@/lib/slug';
 import type { Shop, Service, Barber, Schedule } from '@/types/db';
+
+export type ScheduleBlockLite = {
+  id: string;
+  barber_id: string | null;
+  starts_at: string;
+  ends_at: string;
+  reason: string | null;
+};
 
 type Tab = 'shop' | 'services' | 'team' | 'hours' | 'sedes' | 'pagos' | 'whatsapp';
 
@@ -43,7 +52,7 @@ const DAYS = [
 ];
 
 export function AjustesView({
-  shop, services, barbers, schedules, publicUrl, userShops, paymentSettings, whatsappSettings
+  shop, services, barbers, schedules, publicUrl, userShops, paymentSettings, whatsappSettings, scheduleBlocks
 }: {
   shop: Shop;
   services: Service[];
@@ -53,6 +62,7 @@ export function AjustesView({
   userShops: Shop[];
   paymentSettings: ShopPaymentSettings | null;
   whatsappSettings: ShopWhatsappSettings | null;
+  scheduleBlocks: ScheduleBlockLite[];
 }) {
   const [tab, setTab] = useState<Tab>('shop');
   const [toast, setToast] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
@@ -86,7 +96,7 @@ export function AjustesView({
         {tab === 'shop' && <ShopSection shop={shop} onToast={setToast} />}
         {tab === 'services' && <ServicesSection services={services} onToast={setToast} />}
         {tab === 'team' && <TeamSection barbers={barbers} onToast={setToast} />}
-        {tab === 'hours' && <HoursSection barbers={barbers} schedules={schedules} onToast={setToast} />}
+        {tab === 'hours' && <HoursSection barbers={barbers} schedules={schedules} blocks={scheduleBlocks} onToast={setToast} />}
         {tab === 'sedes' && <SedesSection shop={shop} userShops={userShops} onToast={setToast} />}
         {tab === 'pagos' && <PagosSection settings={paymentSettings} onToast={setToast} />}
         {tab === 'whatsapp' && <WhatsappSection settings={whatsappSettings} onToast={setToast} />}
@@ -487,7 +497,7 @@ function TeamSection({ barbers, onToast }: { barbers: Barber[]; onToast: (t: { t
 
 type DraftSched = Record<number, { start: string; end: string; on: boolean }>;
 
-function HoursSection({ barbers, schedules, onToast }: { barbers: Barber[]; schedules: Schedule[]; onToast: (t: { tone: 'success' | 'error'; text: string }) => void }) {
+function HoursSection({ barbers, schedules, blocks, onToast }: { barbers: Barber[]; schedules: Schedule[]; blocks: ScheduleBlockLite[]; onToast: (t: { tone: 'success' | 'error'; text: string }) => void }) {
   const [pending, start] = useTransition();
   const active = useMemo(() => barbers.filter(b => b.is_active), [barbers]);
   const [barberId, setBarberId] = useState<string>(active[0]?.id || '');
@@ -583,8 +593,187 @@ function HoursSection({ barbers, schedules, onToast }: { barbers: Barber[]; sche
           {pending ? 'Guardando…' : 'Guardar horarios'}
         </button>
       </div>
+
+      {/* Bloqueos puntuales: vacaciones, feriados, días libres extra */}
+      <BlocksSubsection barbers={active} blocks={blocks} onToast={onToast} />
     </div>
   );
+}
+
+function BlocksSubsection({ barbers, blocks, onToast }: { barbers: Barber[]; blocks: ScheduleBlockLite[]; onToast: (t: { tone: 'success' | 'error'; text: string }) => void }) {
+  const [pending, start] = useTransition();
+  // Form en bottom-sheet style abajo de la lista, expandible.
+  const [showForm, setShowForm] = useState(false);
+  const [barberId, setBarberId] = useState<'all' | string>('all');
+  const [startsAt, setStartsAt] = useState('');
+  const [endsAt, setEndsAt] = useState('');
+  const [reason, setReason] = useState('');
+
+  const submit = () => {
+    if (!startsAt || !endsAt) {
+      onToast({ tone: 'error', text: 'Completá las fechas/horas de inicio y fin.' });
+      return;
+    }
+    if (new Date(endsAt).getTime() <= new Date(startsAt).getTime()) {
+      onToast({ tone: 'error', text: 'El fin tiene que ser posterior al inicio.' });
+      return;
+    }
+    start(async () => {
+      // El input datetime-local viene sin TZ. Lo interpretamos en hora local
+      // del browser (en AR, GMT-3).
+      const startsIso = new Date(startsAt).toISOString();
+      const endsIso = new Date(endsAt).toISOString();
+      const r = await createScheduleBlock({
+        barberId: barberId === 'all' ? null : barberId,
+        startsAt: startsIso,
+        endsAt: endsIso,
+        reason
+      });
+      if (r?.error) onToast({ tone: 'error', text: r.error });
+      else {
+        onToast({ tone: 'success', text: 'Bloqueo agregado' });
+        setShowForm(false);
+        setStartsAt(''); setEndsAt(''); setReason(''); setBarberId('all');
+      }
+    });
+  };
+
+  const remove = (id: string) => start(async () => {
+    const r = await deleteScheduleBlock(id);
+    if (r?.error) onToast({ tone: 'error', text: r.error });
+    else onToast({ tone: 'success', text: 'Bloqueo eliminado' });
+  });
+
+  const now = Date.now();
+  // Mostramos los activos/futuros arriba; los pasados se ocultan.
+  const visible = blocks.filter(b => new Date(b.ends_at).getTime() >= now);
+
+  const barberName = (id: string | null) => id ? (barbers.find(b => b.id === id)?.name || 'Barbero') : 'Toda la sede';
+
+  return (
+    <div className="mt-6 border-t border-dark-line pt-5">
+      <div className="font-mono text-[10px] tracking-[2px] text-dark-muted mb-2">
+        BLOQUEOS DE AGENDA
+      </div>
+      <div className="text-[11px] text-dark-muted mb-3 leading-relaxed">
+        Vacaciones, feriados o días sueltos sin trabajar. Estos slots no se ofrecen al cliente al reservar.
+      </div>
+
+      {visible.length === 0 && !showForm && (
+        <div className="bg-dark-card border border-dark-line rounded-xl px-3 py-2.5 text-[12px] text-dark-muted">
+          No hay bloqueos vigentes.
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2">
+        {visible.map(b => (
+          <div key={b.id} className="bg-dark-card border border-dark-line rounded-xl px-3 py-2.5 flex items-center gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] font-medium text-bg truncate">
+                {barberName(b.barber_id)}
+                {b.reason && <span className="text-dark-muted font-normal"> · {b.reason}</span>}
+              </div>
+              <div className="text-[11px] text-dark-muted font-mono">
+                {formatBlockRange(b.starts_at, b.ends_at)}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => remove(b.id)}
+              disabled={pending}
+              className="text-[11px] px-2 py-1 rounded-xs border border-dark-line text-dark-muted hover:text-bg hover:border-bg/40 transition disabled:opacity-50">
+              Quitar
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {showForm ? (
+        <div className="mt-3 bg-dark-card border border-dark-line rounded-xl p-4 flex flex-col gap-2.5">
+          <div className="font-mono text-[10px] tracking-[2px] text-dark-muted">NUEVO BLOQUEO</div>
+
+          <Field label="Aplicar a">
+            <select
+              value={barberId}
+              onChange={e => setBarberId(e.target.value as 'all' | string)}
+              className="bg-transparent text-bg w-full outline-none text-[14px]">
+              <option value="all" className="bg-dark-card">Toda la sede</option>
+              {barbers.map(b => (
+                <option key={b.id} value={b.id} className="bg-dark-card">{b.name}</option>
+              ))}
+            </select>
+          </Field>
+
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Desde">
+              <input
+                type="datetime-local"
+                value={startsAt}
+                onChange={e => setStartsAt(e.target.value)}
+                className="bg-transparent text-bg w-full outline-none font-mono text-[12px]" />
+            </Field>
+            <Field label="Hasta">
+              <input
+                type="datetime-local"
+                value={endsAt}
+                onChange={e => setEndsAt(e.target.value)}
+                className="bg-transparent text-bg w-full outline-none font-mono text-[12px]" />
+            </Field>
+          </div>
+
+          <Field label="Motivo (opcional)">
+            <input
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+              placeholder="Vacaciones / Feriado / Curso"
+              maxLength={120}
+              className="bg-transparent text-bg w-full outline-none text-[13px]" />
+          </Field>
+
+          <div className="flex gap-2 mt-1">
+            <button
+              type="button"
+              onClick={submit}
+              disabled={pending}
+              className="bg-accent text-white px-4 py-2.5 rounded-m text-[13px] font-semibold disabled:opacity-50 active:scale-[0.97] transition">
+              {pending ? 'Guardando…' : 'Crear bloqueo'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowForm(false)}
+              className="px-4 py-2.5 rounded-m border border-dark-line text-bg text-[13px] hover:border-bg/30 transition">
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setShowForm(true)}
+          className="mt-2 rounded-xl border border-dashed border-dark-line px-4 py-2.5 text-[12px] text-dark-muted flex items-center justify-center gap-2 hover:border-bg/30 hover:text-bg transition">
+          <Icon name="plus" size={14} /> Agregar bloqueo
+        </button>
+      )}
+    </div>
+  );
+}
+
+function formatBlockRange(startsAt: string, endsAt: string): string {
+  const start = new Date(startsAt);
+  const end = new Date(endsAt);
+  const sameDay = start.toDateString() === end.toDateString();
+  const fmt = (d: Date) => d.toLocaleString('es-AR', {
+    weekday: 'short', day: 'numeric', month: 'short',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+    timeZone: 'America/Argentina/Buenos_Aires'
+  }).replace(/\./g, '');
+  if (sameDay) {
+    const endTime = end.toLocaleTimeString('es-AR', {
+      hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Argentina/Buenos_Aires'
+    });
+    return `${fmt(start)} → ${endTime}`;
+  }
+  return `${fmt(start)} → ${fmt(end)}`;
 }
 
 // ─── Sedes section ───────────────────────────────────────────────────────────

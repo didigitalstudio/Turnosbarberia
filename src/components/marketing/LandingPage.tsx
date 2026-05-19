@@ -212,7 +212,7 @@ function MockSlot({
 
 /* ---------- Features ---------- */
 
-type IconName = 'calendar' | 'cash' | 'users' | 'scissors' | 'clock' | 'check';
+type IconName = 'calendar' | 'cash' | 'users' | 'scissors' | 'clock' | 'check' | 'phone' | 'mail';
 
 function Features() {
   const items: Array<{ icon: IconName; title: string; body: string }> = [
@@ -223,8 +223,18 @@ function Features() {
     },
     {
       icon: 'cash',
-      title: 'Caja integrada',
-      body: 'Cobros por servicio o producto, facturación del día de un vistazo.'
+      title: 'Cobro anticipado · MercadoPago',
+      body: 'Cobrá una seña al reservar y reducí el no-show. La plata va directo a tu cuenta MP, sin comisiones para nosotros.'
+    },
+    {
+      icon: 'phone',
+      title: 'Recordatorios por WhatsApp',
+      body: 'Mensaje automático el día antes del turno. Menos olvidos, más facturación.'
+    },
+    {
+      icon: 'mail',
+      title: 'Facturación electrónica AFIP',
+      body: 'Emití factura A/B/C desde Caja en un click. Integración nativa con TusFacturasAPP.'
     },
     {
       icon: 'users',
@@ -351,6 +361,9 @@ function Pricing() {
               'Sedes ilimitadas',
               'Caja integrada',
               'Stock de productos',
+              'Cobro anticipado vía Mercado Pago',
+              'Recordatorios automáticos por WhatsApp',
+              'Facturación electrónica AFIP integrada',
               'Dashboard con estadísticas',
               'Soporte prioritario'
             ]}
@@ -434,12 +447,24 @@ function Faq() {
       a: 'El registro necesita aprobación manual mientras estamos en beta; mientras tanto no te cobramos nada hasta tener todo andando. Si querés ver el producto antes de registrarte, escribinos por WhatsApp y te coordinamos un acceso de prueba.'
     },
     {
+      q: '¿Cobran comisión por los pagos con Mercado Pago?',
+      a: 'No. La plata va directo a tu cuenta de Mercado Pago — nosotros solo facilitamos el cobro. La única comisión es la que cobra MP, igual que si vendieras por su QR.'
+    },
+    {
+      q: '¿Cómo funciona la facturación electrónica?',
+      a: 'Integramos con TusFacturasAPP. Cargás tus credenciales una sola vez en Ajustes y desde el módulo de Caja emitís facturas A/B/C en un click. El CAE y el PDF te quedan guardados en el turno.'
+    },
+    {
+      q: '¿Qué necesito para activar WhatsApp?',
+      a: 'Un número dedicado para WhatsApp Business y verificación de empresa en Meta (toma 1-2 semanas la primera vez). Después cargás tus credenciales en Ajustes y los recordatorios salen solos el día previo a cada turno.'
+    },
+    {
       q: '¿Qué pasa si supero los 3 barberos en el plan Starter?',
       a: 'Te avisamos cuando te estés acercando. Para pasar a Pro, escribinos por WhatsApp o mail.'
     },
     {
       q: '¿Mis clientes necesitan crear cuenta?',
-      a: 'No. Pueden reservar como invitados. Si quieren ver su historial, se loguean con un link mágico al mail, sin contraseña.'
+      a: 'Sí. Para evitar turnos fantasma, exigimos registro al reservar (nombre, email, teléfono). El proceso es rápido y queda atado a su próxima reserva.'
     },
     {
       q: '¿Cómo comparto mi barbería con mis clientes?',

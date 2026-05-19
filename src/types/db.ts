@@ -142,6 +142,13 @@ export type Expense = {
   created_at: string;
 };
 
+export type ClientShop = {
+  profile_id: string;
+  shop_id: string;
+  is_primary: boolean;
+  created_at: string;
+};
+
 export type ShopMemberRole = 'owner' | 'admin';
 
 export type ShopMember = {

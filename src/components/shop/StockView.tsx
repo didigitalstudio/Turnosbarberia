@@ -30,6 +30,10 @@ export function StockView({ products }: Props) {
   const [toast, setToast] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
 
   const total = products.length;
+  // Tier de alertas: <=3 es crítico (rojo, se está agotando ya); <10 es bajo
+  // (warning, conviene reponer). El umbral lo decidió el dueño en la reunión
+  // de producto — fácil de hacer configurable más adelante.
+  const critical = products.filter(p => p.stock <= 3);
   const low = products.filter(p => p.stock < 10);
   const valorInventario = products.reduce((s, p) => s + Number(p.price || 0) * Number(p.stock || 0), 0);
   const costoInventario = products.reduce((s, p) => s + Number(p.cost || 0) * Number(p.stock || 0), 0);
@@ -132,17 +136,26 @@ export function StockView({ products }: Props) {
         </div>
       ) : (
         <>
-          {low.length > 0 && (
+          {critical.length > 0 && (
+            <div className="mb-2 bg-accent/15 border-2 border-accent rounded-xl px-4 py-3 flex items-center gap-2">
+              <Icon name="bag" size={14} color="#B6754C" />
+              <span className="text-[12px] text-accent font-semibold">
+                {critical.length} producto{critical.length === 1 ? '' : 's'} con 3 o menos unidades — reponer urgente.
+              </span>
+            </div>
+          )}
+          {low.length > critical.length && (
             <div className="mb-4 bg-accent/10 border border-accent/30 rounded-xl px-4 py-3 flex items-center gap-2">
               <Icon name="bag" size={14} color="#B6754C" />
               <span className="text-[12px] text-accent">
-                {low.length} producto{low.length === 1 ? '' : 's'} con menos de 10 unidades.
+                {low.length - critical.length} producto{low.length - critical.length === 1 ? '' : 's'} con menos de 10 unidades.
               </span>
             </div>
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 md:gap-3">
             {products.map(p => {
+              const isCritical = p.stock <= 3;
               const isLow = p.stock < 10;
               const margin = p.cost ? Number(p.price) - Number(p.cost) : null;
               return (
@@ -150,7 +163,7 @@ export function StockView({ products }: Props) {
                   key={p.id}
                   type="button"
                   onClick={() => open(p)}
-                  className="bg-dark-card border border-dark-line rounded-xl px-4 py-3 text-left hover:border-bg/30 transition active:scale-[0.99]">
+                  className={`bg-dark-card border rounded-xl px-4 py-3 text-left hover:border-bg/30 transition active:scale-[0.99] ${isCritical ? 'border-accent' : 'border-dark-line'}`}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
                       <div className="text-[14px] font-medium text-bg truncate">{p.name}</div>
@@ -160,7 +173,11 @@ export function StockView({ products }: Props) {
                         </div>
                       )}
                     </div>
-                    {isLow && (
+                    {isCritical ? (
+                      <span className="shrink-0 text-[9px] font-bold tracking-[1.5px] uppercase bg-accent text-white border border-accent rounded-xs px-1.5 py-0.5">
+                        Crítico
+                      </span>
+                    ) : isLow && (
                       <span className="shrink-0 text-[9px] font-bold tracking-[1.5px] uppercase bg-accent/20 text-accent border border-accent/40 rounded-xs px-1.5 py-0.5">
                         Bajo
                       </span>
