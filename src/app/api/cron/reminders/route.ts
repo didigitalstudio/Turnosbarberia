@@ -31,6 +31,12 @@ export async function GET(request: Request) {
 
   const admin = createAdminClient();
 
+  // Libera holds de turnos pending_payment cuya MP preference venció.
+  // Defense-in-depth: también se llama lazy en availability.ts y booking.ts.
+  try { await admin.rpc('release_expired_holds'); } catch (e) {
+    console.warn('release_expired_holds failed:', e instanceof Error ? e.message : e);
+  }
+
   // Rango: desde "mañana 00:00 AR" hasta "mañana 23:59:59 AR".
   // AR no tiene DST desde 2009, así que usar offset fijo -03 está OK.
   const now = new Date();
