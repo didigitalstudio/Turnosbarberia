@@ -91,10 +91,19 @@ export async function sendWhatsappTemplate(input: WaReminderInput): Promise<WaSe
     });
     if (!res.ok) {
       const text = await res.text();
-      // Logueamos detallado para diagnosticar templates rechazados o
-      // tokens vencidos.
-      console.error('[whatsapp] envío rechazado:', res.status, text.slice(0, 400));
-      return { ok: false, error: `WA ${res.status}: ${text.slice(0, 200)}` };
+      // Loguear solo campos de error parseados, NUNCA el body completo: Meta
+      // a veces refleja el access_token o trace ids con info sensible en el
+      // error. Si no parsea como JSON, fallback a status + length.
+      let safeDetail = `len=${text.length}`;
+      try {
+        const j = JSON.parse(text);
+        const code = j?.error?.code ?? j?.error?.error_subcode ?? 'unknown';
+        const type = j?.error?.type ?? 'unknown';
+        const msg = String(j?.error?.message || '').slice(0, 120);
+        safeDetail = `code=${code} type=${type} msg=${msg}`;
+      } catch { /* not JSON, keep length only */ }
+      console.error('[whatsapp] envío rechazado:', res.status, safeDetail);
+      return { ok: false, error: `WA ${res.status}` };
     }
     const data = await res.json().catch(() => null) as { messages?: Array<{ id: string }> } | null;
     return { ok: true, messageId: data?.messages?.[0]?.id };

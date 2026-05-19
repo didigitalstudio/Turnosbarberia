@@ -15,7 +15,7 @@ import { upsertShopWhatsappSettings } from '@/app/actions/whatsapp';
 import { createScheduleBlock, deleteScheduleBlock } from '@/app/actions/schedule-blocks';
 import { upsertShopInvoicingSettings } from '@/app/actions/invoicing';
 import { slugify } from '@/lib/slug';
-import type { Shop, Service, Barber, Schedule, IvaCondition } from '@/types/db';
+import type { Shop, Service, Barber, Schedule, IvaCondition, ShopInvoicingSettings } from '@/types/db';
 
 export type ScheduleBlockLite = {
   id: string;
@@ -39,17 +39,6 @@ export type ShopWhatsappSettings = {
   access_token: string | null;
   reminder_template_name: string;
   reminder_template_language: string;
-  is_active: boolean;
-};
-
-export type ShopInvoicingSettings = {
-  api_key: string | null;
-  api_token: string | null;
-  user_token: string | null;
-  cuit: string | null;
-  razon_social: string | null;
-  punto_venta: number;
-  condicion_iva: IvaCondition | null;
   is_active: boolean;
 };
 

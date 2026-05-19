@@ -2,6 +2,7 @@
 import { z } from 'zod';
 import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { slugify } from '@/lib/slug';
+import { initialsFrom } from '@/lib/barber';
 import { revalidatePath } from 'next/cache';
 import { sendNewShopNotificationToSuperAdmin } from '@/lib/email';
 import {
@@ -66,13 +67,6 @@ function dedupeBarberSlug(base: string, used: Set<string>): string {
   const out = `${base}-${n}`;
   used.add(out);
   return out;
-}
-
-function initialsFrom(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '??';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
 // ── Schemas para createShop ────────────────────────────────────────────────
