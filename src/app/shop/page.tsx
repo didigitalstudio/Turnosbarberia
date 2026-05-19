@@ -107,12 +107,16 @@ export default async function ShopAgendaPage({ searchParams }: { searchParams: {
     mpActive: false,
     waActive: false
   };
+  // Productos con stock crítico (≤3): si hay, mostramos banner arriba de la
+  // agenda. Best-effort; si la query falla no rompe el dashboard.
+  let criticalStockCount = 0;
   try {
     const admin = createAdminClient();
-    const [svcCount, mp, wa] = await Promise.all([
+    const [svcCount, mp, wa, criticalProducts] = await Promise.all([
       supabase.from('services').select('id', { count: 'exact', head: true }).eq('shop_id', shop.id).eq('is_active', true),
       admin.from('shop_payment_settings').select('is_active').eq('shop_id', shop.id).maybeSingle<{ is_active: boolean }>(),
-      admin.from('shop_whatsapp_settings').select('is_active').eq('shop_id', shop.id).maybeSingle<{ is_active: boolean }>()
+      admin.from('shop_whatsapp_settings').select('is_active').eq('shop_id', shop.id).maybeSingle<{ is_active: boolean }>(),
+      supabase.from('products').select('id', { count: 'exact', head: true }).eq('shop_id', shop.id).eq('is_active', true).lte('stock', 3)
     ]);
     checklistState = {
       servicesCount: svcCount.count || 0,
@@ -121,6 +125,7 @@ export default async function ShopAgendaPage({ searchParams }: { searchParams: {
       mpActive: Boolean(mp.data?.is_active),
       waActive: Boolean(wa.data?.is_active)
     };
+    criticalStockCount = criticalProducts.count || 0;
   } catch { /* checklist es best-effort, no rompe la página */ }
 
   return (
@@ -134,6 +139,19 @@ export default async function ShopAgendaPage({ searchParams }: { searchParams: {
         />
       ) : (
         <>
+          {/* Banner de stock crítico (≤3 unidades): visible solo si hay
+              productos en estado crítico — no quema espacio si no aplica. */}
+          {criticalStockCount > 0 && (
+            <a
+              href="/shop/stock"
+              className="mx-5 md:mx-8 mt-2 bg-accent/15 border-2 border-accent rounded-xl px-4 py-2.5 flex items-center gap-2 hover:bg-accent/25 transition">
+              <span className="text-[16px]">⚠️</span>
+              <span className="text-[12px] text-bg font-medium">
+                {criticalStockCount} producto{criticalStockCount === 1 ? '' : 's'} con stock crítico (≤3 unidades).
+                <span className="text-accent ml-1">Revisar stock →</span>
+              </span>
+            </a>
+          )}
           {/* Tira de KPIs del día, solo en vista día (en semana no aplica). */}
           {view === 'day' && (
             <DayOverview
