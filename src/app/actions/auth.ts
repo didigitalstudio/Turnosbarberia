@@ -4,6 +4,7 @@ import { createClient, createAdminClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { LAST_SHOP_COOKIE } from '@/lib/shop-context';
 import { sanitizeNext } from '@/lib/safe-next';
+import { PHONE_RE } from '@/lib/validation';
 
 const RESERVED_SLUGS = new Set([
   'api', 'auth', 'shop', 'login', 'registro', 'cuenta',
@@ -130,8 +131,6 @@ export async function signInWithPassword(formData: FormData) {
   const dest = next ?? await destinationForCurrentUser(supabase);
   return { ok: true, dest };
 }
-
-const PHONE_RE = /^[+\d\s()-]{6,30}$/;
 
 export async function signupClient(formData: FormData) {
   const email = String(formData.get('email') || '').trim().toLowerCase();

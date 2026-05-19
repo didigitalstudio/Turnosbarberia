@@ -91,13 +91,29 @@ export async function fetchMpPayment(accessToken: string, paymentId: string | nu
  * Si no se manda amount, reembolsa el total. Si se manda, debe ser <= monto
  * disponible para reembolsar.
  */
-export async function refundMpPayment(accessToken: string, paymentId: string | number, amount?: number) {
+/**
+ * Reembolso parcial (o total) de un pago. MP API:
+ *   POST /v1/payments/{id}/refunds  → { amount?: number }
+ * Si no se manda amount, reembolsa el total. Si se manda, debe ser <= monto
+ * disponible para reembolsar.
+ *
+ * El caller debe pasar un `idempotencyKey` determinístico (ej:
+ * `<appointmentId>-cancel`). MP usa ese key para deduplicar y devolver la
+ * misma respuesta si el call se repite. Esto evita doble reembolso si el
+ * caller reintenta tras un error de red.
+ */
+export async function refundMpPayment(
+  accessToken: string,
+  paymentId: string | number,
+  amount: number | undefined,
+  idempotencyKey: string
+) {
   const res = await fetch(`${MP_API}/v1/payments/${paymentId}/refunds`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
-      'X-Idempotency-Key': `${paymentId}-${amount ?? 'full'}-${Date.now()}`
+      'X-Idempotency-Key': idempotencyKey
     },
     body: JSON.stringify(amount && amount > 0 ? { amount } : {})
   });
