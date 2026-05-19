@@ -261,9 +261,9 @@ function Features() {
             Todo lo que necesitás,<br />nada que sobre.
           </h2>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
           {items.map((item, i) => (
-            <FeatureCard key={item.title} icon={item.icon} title={item.title} body={item.body} wide={i === items.length - 1} />
+            <FeatureCard key={item.title} icon={item.icon} title={item.title} body={item.body} center={i === items.length - 1} />
           ))}
         </div>
       </div>
@@ -271,19 +271,17 @@ function Features() {
   );
 }
 
-function FeatureCard({ icon, title, body, wide }: { icon: IconName; title: string; body: string; wide?: boolean }) {
+function FeatureCard({ icon, title, body, center }: { icon: IconName; title: string; body: string; center?: boolean }) {
   return (
-    <div className={`rounded-2xl bg-card border border-line p-6 md:p-8 shadow-card${wide ? ' md:col-span-2 md:flex md:items-center md:gap-12' : ''}`}>
+    <div className={`rounded-2xl bg-card border border-line p-6 md:p-8 shadow-card${center ? ' lg:col-start-2' : ''}`}>
       <div
-        className={`w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0 ${wide ? 'mb-5 md:mb-0' : 'mb-5'}`}
+        className="w-11 h-11 rounded-2xl flex items-center justify-center mb-5"
         style={{ background: 'rgba(182,117,76,0.12)', color: '#B6754C' }}
       >
         <Icon name={icon} size={20} />
       </div>
-      <div>
-        <h3 className="font-display text-2xl md:text-3xl leading-tight mb-2">{title}</h3>
-        <p className="text-muted leading-relaxed">{body}</p>
-      </div>
+      <h3 className="font-display text-2xl md:text-3xl leading-tight mb-2">{title}</h3>
+      <p className="text-muted leading-relaxed">{body}</p>
     </div>
   );
 }
@@ -419,9 +417,6 @@ function Pricing() {
               'Sedes ilimitadas',
               'Caja integrada',
               'Stock de productos',
-              'Cobro anticipado vía Mercado Pago',
-              'Recordatorios automáticos por WhatsApp',
-              'Facturación electrónica AFIP integrada',
               'Dashboard con estadísticas',
               'Soporte prioritario'
             ]}
